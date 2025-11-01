@@ -1,54 +1,40 @@
-version: "3.9"
-
 services:
-  db:
-    image: postgres:latest
-    container_name: chatsphere_db
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-chatsphere}
-      POSTGRES_USER: ${POSTGRES_USER:-chatsphere}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatsphere}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - todo_network
-    restart: unless-stopped
-
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: chatsphere_app
-    depends_on:
-      db:
-        condition: service_healthy
+    image: my-node-app:latest
+    container_name: my-node-app
+    # --- وضع الإنتاج ---
+    # يقرأ .env إن وجد
     env_file:
       - .env
-    environment:
-      # لخيار تشغيل migrations تلقائيًا
-      DB_PUSH_ON_START: "true"
-      NODE_ENV: "production"
-      # مثال على DATABASE_URL بصيغة Postgres الرسمية
-      DATABASE_URL: ${DATABASE_URL:-postgresql://chatsphere:chatsphere@db:5432/chatsphere}
     ports:
-      - "8080:8080"
-    networks:
-      - todo_network
+      - "8080:8080"  # غيّر المنفذ إن كان مختلفاً
+    # لو تحتاج مجلد بيانات دائم (Logs/Uploads)، فعّله مع :Z لفيدورا
     # volumes:
-    #   - ./:/app
-    # بدون volumes في الإنتاج. أضفها في التطوير إن أردت hot-reload
+    #   - ./data:/app/data:Z
     restart: unless-stopped
+    # healthcheck جيد للمراقبة
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/health',res=>process.exit(res.statusCode===200?0:1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
 
-
- 
-networks:
-  todo_network:
-    driver: bridge
-
-volumes:
-  pgdata:
+  # --- خدمة للتطوير الحي (اختياري) ---
+  app-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: my-node-app:dev
+    container_name: my-node-app-dev
+    command: npm run dev
+    env_file:
+      - .env
+    ports:
+      - "8080:8080"  # غيّر المنفذ إن كان مختلفاً
+    volumes:
+      - ./:/app:Z
+      - /app/node_modules
+    restart: unless-stopped

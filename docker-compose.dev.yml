@@ -1,0 +1,46 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: chatsphere:dev
+    container_name: chatsphere-dev
+    # انتظر DB -> ادفع المايغريشن -> شغّل dev
+    command: sh -c "until nc -z db 5432; do echo 'waiting for db...'; sleep 1; done; npx drizzle-kit push && npm run dev"
+    env_file:
+      - .env
+    environment:
+      # مهم: اجعل DATABASE_URL يستهدف خدمة db وليس localhost
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/whatsapp_chat
+      NODE_ENV: development
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./:/app:Z
+      - /app/node_modules
+      - ./uploads:/app/uploads:Z
+    working_dir: /app
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: chatsphere-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: whatsapp_chat
+    volumes:
+      - pgdata:/var/lib/postgresql/data:Z
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d whatsapp_chat"]
+      interval: 5s
+      timeout: 5s
+      retries: 25
+    restart: unless-stopped
+
+volumes:
+  pgdata:
