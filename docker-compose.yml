@@ -1,40 +1,48 @@
 services:
+  # ✅ تطبيقك الرئيسي ChatSphere
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    image: my-node-app:latest
-    container_name: my-node-app
-    # --- وضع الإنتاج ---
-    # يقرأ .env إن وجد
+    image: chatsphere:dev
+    container_name: chatsphere-dev
+    command: sh -c "until nc -z db_chatsphere 5432; do echo 'waiting for db...'; sleep 1; done; npx drizzle-kit push && npm run dev"
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db_chatsphere:5432/whatsapp_chat
+      NODE_ENV: development
+      PORT: 8080
     ports:
-      - "8080:8080"  # غيّر المنفذ إن كان مختلفاً
-    # لو تحتاج مجلد بيانات دائم (Logs/Uploads)، فعّله مع :Z لفيدورا
-    # volumes:
-    #   - ./data:/app/data:Z
-    restart: unless-stopped
-    # healthcheck جيد للمراقبة
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/health',res=>process.exit(res.statusCode===200?0:1))"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-
-  # --- خدمة للتطوير الحي (اختياري) ---
-  app-dev:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: my-node-app:dev
-    container_name: my-node-app-dev
-    command: npm run dev
-    env_file:
-      - .env
-    ports:
-      - "8080:8080"  # غيّر المنفذ إن كان مختلفاً
+      - "8080:8080"
     volumes:
       - ./:/app:Z
       - /app/node_modules
+      - ./uploads:/app/uploads:Z
+    working_dir: /app
+    depends_on:
+      db_chatsphere:
+        condition: service_healthy
     restart: unless-stopped
+
+  # ✅ قاعدة بيانات خاصة بـ ChatSphere
+  db_chatsphere:
+    image: postgres:16-alpine
+    container_name: chatsphere-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: whatsapp_chat
+    volumes:
+      - pgdata_chatsphere:/var/lib/postgresql/data:Z
+    ports:
+      - "5433:5432"         # 👈 جعلها متاحة خارج Docker على المنفذ 5433
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d whatsapp_chat"]
+      interval: 5s
+      timeout: 5s
+      retries: 25
+    restart: unless-stopped
+volumes:
+  pgdata_chatsphere:
+  pgdata_lab:

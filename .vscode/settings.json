@@ -1,29 +1,15 @@
 {
     "sqltools.connections": [
         {
-            "mysqlOptions": {
-                "authProtocol": "default",
-                "enableSsl": "Disabled"
-            },
-            "ssh": "Disabled",
-            "previewLimit": 50,
-            "server": "172.16.21.101",
-            "port": 3307,
-            "driver": "MariaDB",
-            "name": "sql_nas",
-            "username": "root",
-            "database": "mysql"
-        },
-        {
             "ssh": "Disabled",
             "previewLimit": 50,
             "server": "localhost",
-            "port": 5432,
+            "port": 5433,
             "driver": "PostgreSQL",
             "name": "whatsapp_chat",
-            "database": "postgres",
+            "database": "whatsapp_chat",
             "username": "postgres",
-            "password": "Ancir2025"
+            "password": "postgres"
         }
     ],
     "postman.settings.dotenv-detection-notification-visibility": false
