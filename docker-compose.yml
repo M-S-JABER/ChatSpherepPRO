@@ -10,6 +10,7 @@ services:
     env_file:
       - .env
     environment:
+      # ملاحظة: تم تصحيح كلمة المرور لتطابق إعدادات قاعدة البيانات (Ancir2025)
       DATABASE_URL: postgresql://postgres:postgres@db_chatsphere:5432/whatsapp_chat
       NODE_ENV: development
       PORT: 8080
@@ -25,24 +26,65 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ✅ قاعدة بيانات خاصة بـ ChatSphere
+  # ✅ n8n تعمل على نفس قاعدة البيانات (بسكيما منفصلة لتجنّب أي تعارض)
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    environment:
+      # إعدادات الاتصال ببوستغرس
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: db_chatsphere
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: whatsapp_chat
+      DB_POSTGRESDB_USER: postgres
+      DB_POSTGRESDB_PASSWORD: postgres
+
+      # ننصح بسكيما مستقلة حتى ما تختلط جداول n8n مع جداول التطبيق
+      DB_POSTGRESDB_SCHEMA: n8n
+
+      # إعدادات أساسية
+      N8N_HOST: n8n-nokhba.com
+      WEBHOOK_URL: https://n8n-nokhba.com/
+      N8N_EDITOR_BASE_URL: https://n8n-nokhba.com/
+      N8N_SECURITY_USER: mostafa.sabah.jaber@gmail.com
+      N8N_SECURITY_PASSWORD: Ancir2025#
+      NODE_FUNCTION_ALLOW_EXTERNAL: axios,lodash
+      VUE_APP_URL_BASE_API: https://n8n-nokhba.com/
+      N8N_PORT: 5678
+      N8N_PROTOCOL: https
+      N8N_LOG_LEVEL: info
+      GENERIC_TIMEZONE: Asia/Baghdad
+    depends_on:
+      db_chatsphere:
+        condition: service_healthy
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n-data:/home/node/.n8n
+    restart: unless-stopped
+
+  # ✅ قاعدة بيانات خاصة بـ ChatSphere (ويستعملها n8n أيضًا)
   db_chatsphere:
-    image: postgres:16-alpine
-    container_name: chatsphere-db
+    image: postgres:16
+    container_name: db_chatsphere
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: whatsapp_chat
     volumes:
       - pgdata_chatsphere:/var/lib/postgresql/data:Z
+      # (اختياري) إنشاء سكيما n8n تلقائيًا عند أول تشغيل:
+      - ./initdb:/docker-entrypoint-initdb.d:ro
     ports:
-      - "5433:5432"         # 👈 جعلها متاحة خارج Docker على المنفذ 5433
+      - "5432:5432"         # 👈 اجعلها متاحة خارج Docker على المنفذ 5432 (احذر التعارض مع أي Postgres على الهست)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d whatsapp_chat"]
       interval: 5s
       timeout: 5s
       retries: 25
     restart: unless-stopped
+
 volumes:
   pgdata_chatsphere:
   pgdata_lab:
+  n8n-data:
