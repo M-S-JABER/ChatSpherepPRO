@@ -1,0 +1,50 @@
+services:
+  # ✅ تطبيقك الرئيسي ChatSphere
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: chatsphere:dev
+    container_name: chatsphere-dev
+    command: sh -c "until nc -z db_chatsphere 5432; do echo 'waiting for db...'; sleep 1; done; npx drizzle-kit push && npm run dev"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db_chatsphere:5432/whatsapp_chat
+      NODE_ENV: development
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./:/app:Z
+      - /app/node_modules
+      - ./uploads:/app/uploads:Z
+    working_dir: /app
+    depends_on:
+      db_chatsphere:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ✅ قاعدة بيانات خاصة بـ ChatSphere
+  db_chatsphere:
+    image: postgres:16
+    container_name: db_chatsphere
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: whatsapp_chat
+    volumes:
+      - pgdata_chatsphere:/var/lib/postgresql/data:Z
+      # (اختياري) إذا عندك سكربتات تهيئة للتطبيق فقط
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d whatsapp_chat"]
+      interval: 5s
+      timeout: 5s
+      retries: 25
+    restart: unless-stopped
+
+volumes:
+  pgdata_chatsphere:
