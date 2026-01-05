@@ -5,4 +5,4 @@ scripts
 uploads
 .gitignore
 package-lock.json
-.nvmrc
+.nvmrc.vscode/
