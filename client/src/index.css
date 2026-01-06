@@ -221,11 +221,13 @@
   html,
   body {
     min-height: var(--app-viewport-height);
+    height: var(--app-viewport-height);
     overscroll-behavior-y: none;
   }
 
   #root {
     min-height: var(--app-viewport-height);
+    height: var(--app-viewport-height);
     display: flex;
     flex-direction: column;
   }
@@ -299,6 +301,7 @@
 
 .app-shell {
   min-height: var(--app-viewport-height);
+  height: var(--app-viewport-height);
   display: flex;
   flex-direction: column;
   flex: 1;

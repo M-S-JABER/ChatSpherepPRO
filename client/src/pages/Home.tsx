@@ -441,7 +441,7 @@ export default function Home() {
 
   const gridTemplate = isTablet
     ? cn(
-        "grid h-full min-h-0 w-full overflow-hidden rounded-none bg-card/95 backdrop-blur shadow-xl shadow-black/5 supports-[backdrop-filter]:bg-card/90 md:rounded-[28px]",
+        "grid h-full min-h-0 w-full grid-rows-[minmax(0,1fr)] overflow-hidden rounded-none bg-card/95 backdrop-blur shadow-xl shadow-black/5 supports-[backdrop-filter]:bg-card/90 md:rounded-[28px]",
         isLargeDesktop && isInfoDrawerOpen && selectedConversation
           ? "grid-cols-[360px_minmax(0,1fr)_340px]"
           : "grid-cols-[360px_minmax(0,1fr)]",

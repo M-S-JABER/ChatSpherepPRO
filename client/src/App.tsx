@@ -63,7 +63,7 @@ function App() {
         <TooltipProvider>
           <div className="app-shell">
             <Toaster />
-            <main className="flex min-h-0 flex-1">
+            <main className="flex min-h-0 flex-1 overflow-y-auto">
               <Router />
             </main>
           </div>
