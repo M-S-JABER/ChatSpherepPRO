@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -14,11 +15,20 @@ import {
   isImage,
 } from "@/lib/attachmentUtils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import EmojiPicker, { EmojiClickData } from "emoji-picker-react";
-import { Smile, Paperclip, Send, X } from "lucide-react";
+import { FileText, Paperclip, Send, Smile, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { type TemplateCatalogItem } from "@/types/templates";
 
 type ComposerAttachment = Attachment;
 type UpdateAttachmentUploadState = (id: string, state: Partial<AttachmentUploadState>) => void;
@@ -30,6 +40,12 @@ export type ChatComposerSendPayload = {
   setAttachmentUploadState: UpdateAttachmentUploadState;
 };
 
+export type ChatComposerTemplateSendPayload = {
+  template: TemplateCatalogItem;
+  params: string[];
+  replyToMessageId?: string;
+};
+
 type ReplyContext = {
   id: string;
   senderLabel: string;
@@ -38,6 +54,8 @@ type ReplyContext = {
 
 export type ChatComposerProps = {
   onSend: (payload: ChatComposerSendPayload) => Promise<void> | void;
+  onSendTemplate?: (payload: ChatComposerTemplateSendPayload) => Promise<void> | void;
+  templates?: TemplateCatalogItem[];
   maxFiles?: number;
   maxFileSizeMB?: number;
   acceptedTypes?: ReadonlyArray<string>;
@@ -88,6 +106,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
   function ChatComposer(
     {
       onSend,
+      onSendTemplate,
+      templates = [],
       maxFiles = DEFAULT_MAX_FILES,
       maxFileSizeMB = DEFAULT_MAX_FILE_SIZE_MB,
       acceptedTypes = DEFAULT_ACCEPTED_TYPES,
@@ -103,11 +123,15 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const [errors, setErrors] = useState<string[]>([]);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [isSending, setIsSending] = useState(false);
+    const [templatePanelOpen, setTemplatePanelOpen] = useState(false);
+    const [selectedTemplateName, setSelectedTemplateName] = useState<string | null>(null);
+    const [templateParamsInput, setTemplateParamsInput] = useState("");
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const selectionRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
     const attachmentsRef = useRef<ComposerAttachment[]>(attachments);
     const clearTimerRef = useRef<number | null>(null);
+    const templateAutoOpenRef = useRef(false);
 
     const updateSelection = useCallback(() => {
       const el = textareaRef.current;
@@ -244,6 +268,39 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       attachmentsRef.current = attachments;
     }, [attachments]);
 
+    const availableTemplates = useMemo(
+      () =>
+        templates
+          .map((template) => ({
+            ...template,
+            name: typeof template.name === "string" ? template.name.trim() : "",
+          }))
+          .filter((template) => template.name.length > 0),
+      [templates],
+    );
+
+    useEffect(() => {
+      if (availableTemplates.length === 0) {
+        if (selectedTemplateName !== null) {
+          setSelectedTemplateName(null);
+        }
+        return;
+      }
+
+      const exists = availableTemplates.some((template) => template.name === selectedTemplateName);
+      if (!exists) {
+        setSelectedTemplateName(availableTemplates[0].name);
+      }
+    }, [availableTemplates, selectedTemplateName]);
+
+    useEffect(() => {
+      if (!onSendTemplate || templateAutoOpenRef.current) return;
+      if (availableTemplates.length > 0) {
+        setTemplatePanelOpen(true);
+        templateAutoOpenRef.current = true;
+      }
+    }, [availableTemplates.length, onSendTemplate]);
+
     useEffect(() => {
       return () => {
         attachmentsRef.current.forEach(revokeAttachmentUrl);
@@ -261,6 +318,38 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
         el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
       }
     }, [message]);
+
+    const parseTemplateParamsInput = useCallback((input: string): string[] => {
+      const trimmed = input.trim();
+      if (!trimmed) return [];
+      if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            return parsed.map((item) => String(item)).filter((item) => item.trim().length > 0);
+          }
+        } catch {
+          return [trimmed];
+        }
+      }
+      return [trimmed];
+    }, []);
+
+    const selectedTemplate =
+      availableTemplates.find((template) => template.name === selectedTemplateName) ??
+      availableTemplates[0] ??
+      null;
+
+    const templateParams = parseTemplateParamsInput(templateParamsInput);
+    const expectedParamCount = selectedTemplate?.bodyParams ?? 0;
+    const hasRequiredParams =
+      expectedParamCount === 0 || templateParams.length >= expectedParamCount;
+    const canSendTemplate =
+      Boolean(onSendTemplate && selectedTemplate) &&
+      !disabled &&
+      !isSending &&
+      attachments.length === 0 &&
+      hasRequiredParams;
 
     const handleEmojiClick = (emojiData: EmojiClickData) => {
       insertTextAtCursor(emojiData.emoji);
@@ -305,6 +394,44 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       const text = await readDroppedText(dataTransfer);
       if (text) {
         insertTextAtCursor(text);
+      }
+    };
+
+    const handleTemplateSend = async () => {
+      if (!onSendTemplate || !selectedTemplate || disabled || isSending) {
+        return;
+      }
+
+      if (attachments.length > 0) {
+        setErrors((prev) =>
+          Array.from(new Set([...prev, "Remove attachments before sending a template."]))
+        );
+        return;
+      }
+
+      if (!hasRequiredParams) {
+        setErrors((prev) =>
+          Array.from(
+            new Set([
+              ...prev,
+              `Provide at least ${expectedParamCount} parameter${expectedParamCount === 1 ? "" : "s"} for this template.`,
+            ]),
+          ),
+        );
+        return;
+      }
+
+      setErrors([]);
+      setIsSending(true);
+      try {
+        await onSendTemplate({
+          template: selectedTemplate,
+          params: templateParams,
+          replyToMessageId: replyTo?.id,
+        });
+        onClearReply?.();
+      } finally {
+        setIsSending(false);
       }
     };
 
@@ -405,6 +532,88 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           </div>
         )}
 
+        {templatePanelOpen && (
+          <div className="mt-2 rounded-2xl border border-border/60 bg-card/95 px-3 py-3 shadow-sm">
+            {availableTemplates.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No templates configured. Set META_TEMPLATE_CATALOG or META_TEMPLATE_NAME in the server environment.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="grid gap-3 md:grid-cols-[1.2fr_1.6fr_auto] md:items-end">
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Template
+                    </p>
+                    <Select
+                      value={selectedTemplate?.name ?? ""}
+                      onValueChange={(value) => setSelectedTemplateName(value)}
+                    >
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Choose template" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableTemplates.map((template) => (
+                          <SelectItem key={template.name} value={template.name}>
+                            {template.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedTemplate?.language && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Language: {selectedTemplate.language}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Parameters
+                    </p>
+                    <Input
+                      value={templateParamsInput}
+                      onChange={(event) => setTemplateParamsInput(event.target.value)}
+                      placeholder='["name","order"] or single value'
+                      className="h-9"
+                      disabled={!selectedTemplate || disabled}
+                    />
+                    <p className="text-[11px] text-muted-foreground">
+                      {selectedTemplate?.bodyParams
+                        ? `Expected ${selectedTemplate.bodyParams} parameter${
+                            selectedTemplate.bodyParams === 1 ? "" : "s"
+                          }. Use JSON array for multiple values.`
+                        : "Use JSON array for multiple values."}
+                    </p>
+                    {expectedParamCount > 0 && templateParams.length < expectedParamCount && (
+                      <p className="text-[11px] text-destructive">
+                        Missing {expectedParamCount - templateParams.length} parameter
+                        {expectedParamCount - templateParams.length === 1 ? "" : "s"}.
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="h-9 w-full md:w-auto"
+                    onClick={handleTemplateSend}
+                    disabled={!canSendTemplate}
+                  >
+                    Send template
+                  </Button>
+                </div>
+                {attachments.length > 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Remove attachments before sending a template.
+                  </p>
+                )}
+                {selectedTemplate?.description && (
+                  <p className="text-xs text-muted-foreground">{selectedTemplate.description}</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ✅ كتلة الـ composer نفسها */}
         <div className="mt-2 flex items-end gap-2 rounded-2xl border border-border/60 bg-card/95 px-2 py-2 shadow-sm">
           <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
@@ -432,6 +641,18 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
               />
             </PopoverContent>
           </Popover>
+
+          <Button
+            size="icon"
+            variant={templatePanelOpen ? "secondary" : "ghost"}
+            type="button"
+            className="h-9 w-9 rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            onClick={() => setTemplatePanelOpen((prev) => !prev)}
+            disabled={!onSendTemplate}
+            aria-label="Toggle templates"
+          >
+            <FileText className="h-5 w-5" />
+          </Button>
 
           <input
             ref={fileInputRef}

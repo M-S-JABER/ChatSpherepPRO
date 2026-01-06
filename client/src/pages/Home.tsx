@@ -17,6 +17,7 @@ import { useMediaQuery } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
 import { ConversationInfoDrawer } from "@/components/chat/ConversationInfoDrawer";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
+import { type TemplateCatalogItem } from "@/types/templates";
 
 const MAX_PINNED_CONVERSATIONS = 10;
 
@@ -106,6 +107,17 @@ export default function Home() {
 
   const pinnedConversationIds = pinnedData?.pins?.map((pin) => pin.conversationId) ?? [];
 
+  const { data: templatesData } = useQuery<{ items: TemplateCatalogItem[] }>({
+    queryKey: ["/api/templates"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/templates");
+      return await res.json();
+    },
+    retry: false,
+  });
+
+  const templates = templatesData?.items ?? [];
+
   const {
     data: messagesData,
     isLoading: messagesLoading,
@@ -123,12 +135,18 @@ export default function Home() {
       mediaUrl,
       conversationId,
       replyToMessageId,
+      messageType,
+      template,
+      templateParams,
     }: {
       to: string;
-      body: string;
+      body?: string;
       mediaUrl?: string;
       conversationId: string;
       replyToMessageId?: string;
+      messageType?: "text" | "template";
+      template?: TemplateCatalogItem;
+      templateParams?: string[];
     }) => {
       return await apiRequest("POST", "/api/message/send", {
         to,
@@ -136,6 +154,15 @@ export default function Home() {
         media_url: mediaUrl,
         conversationId,
         replyToMessageId,
+        messageType,
+        template: template
+          ? {
+              name: template.name,
+              language: template.language,
+              components: template.components,
+            }
+          : undefined,
+        templateParams,
       });
     },
     onSuccess: () => {
@@ -269,11 +296,13 @@ export default function Home() {
         }
       }
       const trimmedBody = variables.body?.trim();
-      if (trimmedBody && data.conversation?.id) {
+      const shouldSendTemplate = Boolean(data?.created) || Boolean(trimmedBody);
+      if (shouldSendTemplate && data.conversation?.id) {
         sendMessageMutation.mutate({
           to: data.conversation.phone ?? variables.phone,
-          body: trimmedBody,
+          body: trimmedBody || undefined,
           conversationId: data.conversation.id,
+          messageType: "template",
         });
       }
     },
@@ -329,6 +358,11 @@ export default function Home() {
     body: string,
     mediaUrl?: string,
     replyToMessageId?: string | null,
+    options?: {
+      messageType?: "text" | "template";
+      template?: TemplateCatalogItem;
+      templateParams?: string[];
+    },
   ) => {
     if (!selectedConversation) {
       throw new Error("No conversation selected");
@@ -338,8 +372,11 @@ export default function Home() {
       body,
       mediaUrl,
       conversationId: selectedConversation.id,
-    replyToMessageId: replyToMessageId ?? undefined,
-  });
+      replyToMessageId: replyToMessageId ?? undefined,
+      messageType: options?.messageType,
+      template: options?.template,
+      templateParams: options?.templateParams,
+    });
   };
 
   const handleDeleteConversation = async () => {
@@ -406,6 +443,7 @@ export default function Home() {
                 conversation={selectedConversation}
                 messages={messages}
                 onSendMessage={handleSendMessage}
+                templates={templates}
                 isLoading={messagesLoading}
                 isSending={sendMessageMutation.isPending}
                 canManageMessages={canDeleteMessages}
@@ -471,6 +509,7 @@ export default function Home() {
                 conversation={selectedConversation}
                 messages={messages}
                 onSendMessage={handleSendMessage}
+                templates={templates}
                 isLoading={messagesLoading}
                 isSending={sendMessageMutation.isPending}
                 canManageMessages={canDeleteMessages}

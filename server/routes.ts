@@ -6,7 +6,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import path from "path";
 import type { MessageMedia } from "@shared/schema";
 import { storage, type WhatsappInstanceConfig } from "./storage";
-import { MetaProvider } from "./providers/meta";
+import { MetaProvider, type MetaTemplateMessage } from "./providers/meta";
 import { WebhookDebugger } from "./debug-webhook";
 import { logger } from "./logger";
 import type { IncomingMediaDescriptor } from "./providers/base";
@@ -150,6 +150,219 @@ function extensionToMediaType(extension: string | null): MessageMedia["type"] {
   }
   return "unknown";
 }
+
+const DEFAULT_TEMPLATE_LANGUAGE = "en_US";
+
+type TemplateRequestInput = {
+  name?: string;
+  language?: string | { code?: string; policy?: "deterministic" | "fallback" };
+  components?: unknown;
+};
+
+const parseTemplateComponents = (
+  input: unknown,
+): MetaTemplateMessage["components"] | undefined => {
+  if (!input) return undefined;
+  if (Array.isArray(input)) {
+    return input.filter(
+      (component) => component && typeof component === "object",
+    ) as MetaTemplateMessage["components"];
+  }
+  if (typeof input === "string") {
+    try {
+      const parsed = JSON.parse(input);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (component) => component && typeof component === "object",
+        ) as MetaTemplateMessage["components"];
+      }
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+};
+
+const parseTemplateParamsValue = (value: unknown): string[] | null => {
+  if (Array.isArray(value)) {
+    const normalized = value.map((item) => String(item)).filter((item) => item.trim().length > 0);
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        const normalized = parsed.map((item) => String(item)).filter((item) => item.trim().length > 0);
+        return normalized.length > 0 ? normalized : null;
+      }
+    } catch {
+      return [trimmed];
+    }
+  }
+
+  return [trimmed];
+};
+
+const resolveTemplateParams = (templateParams: unknown, body?: string | null): string[] | null => {
+  const fromParams = parseTemplateParamsValue(templateParams);
+  if (fromParams && fromParams.length > 0) {
+    return fromParams;
+  }
+
+  return parseTemplateParamsValue(body);
+};
+
+const buildBodyParameters = (params: string[]) =>
+  params.map((text) => ({ type: "text", text }));
+
+const applyBodyParamsToComponents = (
+  components: MetaTemplateMessage["components"] | undefined,
+  bodyParams: string[] | null,
+): MetaTemplateMessage["components"] | undefined => {
+  if (!bodyParams || bodyParams.length === 0) return components;
+  const bodyComponent = { type: "body", parameters: buildBodyParameters(bodyParams) };
+
+  if (!components || components.length === 0) return [bodyComponent];
+
+  const next = components.map((component) => ({ ...component }));
+  const bodyIndex = next.findIndex((component) => component.type === "body");
+
+  if (bodyIndex === -1) {
+    return [...next, bodyComponent];
+  }
+
+  next[bodyIndex] = {
+    ...next[bodyIndex],
+    parameters: buildBodyParameters(bodyParams),
+  };
+
+  return next;
+};
+
+const resolveTemplateMessage = (
+  templateInput: TemplateRequestInput | string | null | undefined,
+  bodyParams?: string[] | null,
+): MetaTemplateMessage | null => {
+  const template =
+    typeof templateInput === "string"
+      ? ({ name: templateInput } satisfies TemplateRequestInput)
+      : (templateInput as TemplateRequestInput | null | undefined);
+
+  const name =
+    typeof template?.name === "string" && template.name.trim()
+      ? template.name.trim()
+      : process.env.META_TEMPLATE_NAME?.trim();
+
+  if (!name) return null;
+
+  const templateLanguage = template?.language;
+  const languageCode =
+    typeof templateLanguage === "string"
+      ? templateLanguage.trim()
+      : templateLanguage &&
+        typeof templateLanguage === "object" &&
+        typeof templateLanguage.code === "string"
+      ? templateLanguage.code.trim()
+      : process.env.META_TEMPLATE_LANGUAGE?.trim() || DEFAULT_TEMPLATE_LANGUAGE;
+
+  const componentsFromRequest = parseTemplateComponents(template?.components);
+  const componentsFromEnv = parseTemplateComponents(process.env.META_TEMPLATE_COMPONENTS);
+  const baseComponents = componentsFromRequest ?? componentsFromEnv;
+  const components = applyBodyParamsToComponents(baseComponents, bodyParams);
+
+  const language =
+    templateLanguage && typeof templateLanguage === "object"
+      ? { ...templateLanguage, code: languageCode }
+      : { code: languageCode };
+
+  return {
+    name,
+    language,
+    components,
+  };
+};
+
+type TemplateCatalogItem = {
+  name: string;
+  language?: string;
+  description?: string;
+  category?: string;
+  components?: MetaTemplateMessage["components"];
+};
+
+type TemplateCatalogResponseItem = TemplateCatalogItem & {
+  bodyParams?: number;
+};
+
+const countBodyParams = (components?: MetaTemplateMessage["components"]): number => {
+  if (!components) return 0;
+  const bodyComponent = components.find((component) => component?.type === "body");
+  const params = bodyComponent?.parameters;
+  return Array.isArray(params) ? params.length : 0;
+};
+
+const normalizeTemplateCatalogItem = (item: unknown): TemplateCatalogResponseItem | null => {
+  if (!item || typeof item !== "object") return null;
+  const record = item as Record<string, any>;
+  const name = typeof record.name === "string" ? record.name.trim() : "";
+  if (!name) return null;
+
+  const language = typeof record.language === "string" ? record.language.trim() : undefined;
+  const description = typeof record.description === "string" ? record.description.trim() : undefined;
+  const category = typeof record.category === "string" ? record.category.trim() : undefined;
+  const components = parseTemplateComponents(record.components);
+
+  return {
+    name,
+    language,
+    description,
+    category,
+    components,
+    bodyParams: countBodyParams(components),
+  };
+};
+
+const loadTemplateCatalog = (): TemplateCatalogResponseItem[] => {
+  const items: TemplateCatalogResponseItem[] = [];
+  const raw = process.env.META_TEMPLATE_CATALOG;
+
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        parsed
+          .map((item) => normalizeTemplateCatalogItem(item))
+          .filter((item): item is TemplateCatalogResponseItem => Boolean(item))
+          .forEach((item) => items.push(item));
+      }
+    } catch {
+      // ignore malformed catalog
+    }
+  }
+
+  if (items.length === 0) {
+    const fallbackName = process.env.META_TEMPLATE_NAME?.trim();
+    if (fallbackName) {
+      const components = parseTemplateComponents(process.env.META_TEMPLATE_COMPONENTS);
+      items.push({
+        name: fallbackName,
+        language: process.env.META_TEMPLATE_LANGUAGE?.trim() || DEFAULT_TEMPLATE_LANGUAGE,
+        components,
+        bodyParams: countBodyParams(components),
+      });
+    }
+  }
+
+  return items;
+};
 
 // Helper function to create a Meta provider using persisted settings (with env fallback)
 async function createMetaProvider(): Promise<{
@@ -689,6 +902,7 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
       }
 
       let conversation = await storage.getConversationByPhone(trimmedPhone);
+      let created = false;
 
       if (!conversation) {
         conversation = await storage.createConversation({
@@ -696,9 +910,10 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
           displayName: typeof displayName === "string" ? displayName.trim() || null : null,
           createdByUserId: req.user?.id ?? null,
         });
+        created = true;
       }
 
-      res.json({ conversation });
+      res.json({ conversation, created });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -740,6 +955,15 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
     }
   });
 
+  app.get("/api/templates", async (_req: Request, res: Response) => {
+    try {
+      const items = loadTemplateCatalog();
+      res.json({ items });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.post("/api/message/send", async (req: Request, res: Response) => {
     try {
       const {
@@ -748,20 +972,32 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
         media_url,
         conversationId,
         replyToMessageId,
+        messageType,
+        template,
+        templateParams,
       } = req.body as {
         to?: string;
         body?: string | null;
         media_url?: string | null;
         conversationId?: string | null;
         replyToMessageId?: string | null;
+        messageType?: "text" | "template";
+        template?: TemplateRequestInput | string | null;
+        templateParams?: string[] | string | null;
       };
 
       if (!conversationId && !to) {
         return res.status(400).json({ error: "conversationId or to is required." });
       }
 
-      if (!body && !media_url) {
+      const wantsTemplate = messageType === "template" || Boolean(template);
+
+      if (!wantsTemplate && !body && !media_url) {
         return res.status(400).json({ error: "body or media_url is required." });
+      }
+
+      if (wantsTemplate && media_url) {
+        return res.status(400).json({ error: "template messages do not support media_url." });
       }
 
       let conversation = null as Awaited<ReturnType<typeof storage.getConversationById>> | null;
@@ -789,6 +1025,17 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
       }
 
       const recipientPhone = conversation.phone;
+      const resolvedTemplateParams = wantsTemplate ? resolveTemplateParams(templateParams, body ?? null) : null;
+      const templateMessage = wantsTemplate
+        ? resolveTemplateMessage(template, resolvedTemplateParams)
+        : null;
+
+      if (wantsTemplate && !templateMessage) {
+        return res.status(400).json({
+          error: "Template name is required. Set META_TEMPLATE_NAME or pass template.name in the request.",
+        });
+      }
+
       let replyTarget = null as Awaited<ReturnType<typeof storage.getMessageById>> | null;
 
       if (replyToMessageId) {
@@ -815,6 +1062,7 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
           conversationId: conversation.id,
           replyToMessageId: replyToMessageId ?? null,
           hasMedia: Boolean(media_url),
+          messageType: wantsTemplate ? "template" : "text",
         }),
       );
 
@@ -871,14 +1119,26 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
       let providerMessageId: string | null = null;
       let status: string = "sent";
       const providerMediaPath = relativeMediaPath ? buildSignedMediaPath(relativeMediaPath) : media_url ?? undefined;
+      const storedBody = wantsTemplate
+        ? body && body.trim().length > 0
+          ? body.trim()
+          : resolvedTemplateParams && resolvedTemplateParams.length > 0
+          ? `Template: ${templateMessage?.name ?? "unknown"} (${resolvedTemplateParams.join(", ")})`
+          : `Template: ${templateMessage?.name ?? "unknown"}`
+        : body || null;
 
       try {
-        const providerMediaUrl = providerMediaPath
-          ? resolvePublicMediaUrl(req, providerMediaPath)
-          : undefined;
+        if (wantsTemplate && templateMessage) {
+          const providerResp = await provider.sendTemplate(recipientPhone, templateMessage);
+          providerMessageId = providerResp.id || null;
+        } else {
+          const providerMediaUrl = providerMediaPath
+            ? resolvePublicMediaUrl(req, providerMediaPath)
+            : undefined;
 
-        const providerResp = await provider.send(recipientPhone, body ?? undefined, providerMediaUrl);
-        providerMessageId = providerResp.id || null;
+          const providerResp = await provider.send(recipientPhone, body ?? undefined, providerMediaUrl);
+          providerMessageId = providerResp.id || null;
+        }
       } catch (providerError: any) {
         console.warn("Failed to send via provider, saving locally:", providerError.message);
         status = "failed";
@@ -887,10 +1147,11 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
       const message = await storage.createMessage({
         conversationId: conversation.id,
         direction: "outbound",
-        body: body || null,
+        body: storedBody,
         media: outboundMedia,
         providerMessageId,
         status,
+        raw: wantsTemplate ? { template: templateMessage, params: resolvedTemplateParams } : undefined,
         replyToMessageId: replyToMessageId ?? null,
         sentByUserId: req.user?.id ?? null,
       } as any);

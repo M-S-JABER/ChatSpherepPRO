@@ -68,7 +68,7 @@ export function NewConversationDialog({
           <DialogHeader>
             <DialogTitle>New Conversation</DialogTitle>
             <DialogDescription>
-              Enter a phone number to start a new WhatsApp conversation.
+              Enter a phone number to start a new WhatsApp conversation. A template message will be sent to begin the chat.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -91,11 +91,14 @@ export function NewConversationDialog({
               <Label htmlFor="message">Message (optional)</Label>
               <Textarea
                 id="message"
-                placeholder="Type a message to send immediately"
+                placeholder="Optional template parameter"
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
                 data-testid="input-initial-message"
               />
+              <p className="text-xs text-muted-foreground">
+                If provided, this will be used as the first template parameter.
+              </p>
             </div>
           </div>
           <DialogFooter>

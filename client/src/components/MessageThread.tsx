@@ -13,12 +13,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ChatComposer, type ChatComposerHandle, type ChatComposerSendPayload } from "./chat/ChatComposer";
+import {
+  ChatComposer,
+  type ChatComposerHandle,
+  type ChatComposerSendPayload,
+  type ChatComposerTemplateSendPayload,
+} from "./chat/ChatComposer";
 import { ChatDropZone } from "./chat/ChatDropZone";
 import { MessageBubble } from "./MessageBubble";
 import { useToast } from "@/hooks/use-toast";
 import { uploadFile } from "@/lib/uploadService";
 import { cn } from "@/lib/utils";
+import { type TemplateCatalogItem } from "@/types/templates";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { format, isSameDay } from "date-fns";
 import {
@@ -40,7 +46,13 @@ import {
 interface MessageThreadProps {
   conversation: Conversation | null;
   messages: ChatMessage[];
-  onSendMessage: (body: string, mediaUrl?: string, replyToMessageId?: string | null) => Promise<void> | void;
+  onSendMessage: (
+    body: string,
+    mediaUrl?: string,
+    replyToMessageId?: string | null,
+    options?: SendMessageOptions,
+  ) => Promise<void> | void;
+  templates?: TemplateCatalogItem[];
   isLoading?: boolean;
   isSending?: boolean;
   canManageMessages?: boolean;
@@ -60,6 +72,12 @@ type ReplyContext = {
   id: string;
   senderLabel: string;
   snippet: string;
+};
+
+type SendMessageOptions = {
+  messageType?: "text" | "template";
+  template?: TemplateCatalogItem;
+  templateParams?: string[];
 };
 
 type TimelineEntry =
@@ -171,6 +189,7 @@ export function MessageThread({
   conversation,
   messages,
   onSendMessage,
+  templates,
   isLoading,
   isSending,
   canManageMessages,
@@ -306,6 +325,36 @@ export function MessageThread({
       toast({
         title: "Upload failed",
         description: error?.message ?? "Unable to upload attachment.",
+        variant: "destructive",
+      });
+      throw error;
+    }
+  };
+
+  const handleTemplateSend = async ({
+    template,
+    params,
+    replyToMessageId,
+  }: ChatComposerTemplateSendPayload) => {
+    if (!conversation) {
+      throw new Error("No conversation selected");
+    }
+
+    const effectiveReplyId = replyToMessageId ?? replyContext?.id ?? null;
+
+    try {
+      await Promise.resolve(
+        onSendMessage("", undefined, effectiveReplyId, {
+          messageType: "template",
+          template,
+          templateParams: params,
+        }),
+      );
+      setReplyContext(null);
+    } catch (error: any) {
+      toast({
+        title: "Failed to send template",
+        description: error?.message ?? "Unable to send template message.",
         variant: "destructive",
       });
       throw error;
@@ -755,6 +804,8 @@ export function MessageThread({
           <ChatComposer
             ref={composerRef}
             onSend={handleComposerSend}
+            onSendTemplate={handleTemplateSend}
+            templates={templates}
             disabled={isSending || !conversation}
             replyTo={replyContext}
             onClearReply={handleClearReply}

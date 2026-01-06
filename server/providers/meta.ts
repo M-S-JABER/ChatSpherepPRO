@@ -8,6 +8,39 @@ import {
 import crypto from "crypto";
 import path from "path";
 
+export type MetaTemplateComponentParameter = {
+  type: "text" | "currency" | "date_time" | "image" | "video" | "document" | "payload";
+  text?: string;
+  currency?: {
+    fallback_value: string;
+    code: string;
+    amount_1000: number;
+  };
+  date_time?: {
+    fallback_value: string;
+  };
+  image?: { link: string };
+  video?: { link: string };
+  document?: { link: string; filename?: string };
+  payload?: string;
+};
+
+export type MetaTemplateComponent = {
+  type: "header" | "body" | "footer" | "button";
+  parameters?: MetaTemplateComponentParameter[];
+  sub_type?: "quick_reply" | "url";
+  index?: string;
+};
+
+export type MetaTemplateMessage = {
+  name: string;
+  language?: {
+    code: string;
+    policy?: "deterministic" | "fallback";
+  } | string;
+  components?: MetaTemplateComponent[];
+};
+
 export class MetaProvider implements IWhatsAppProvider {
   private token: string;
   private phoneNumberId: string;
@@ -31,6 +64,28 @@ export class MetaProvider implements IWhatsAppProvider {
     if (!this.token || !this.phoneNumberId) {
       console.warn("Meta credentials not configured. Sending messages will fail.");
     }
+  }
+
+  private async postMessage(messagePayload: any): Promise<SendMessageResponse> {
+    const response = await fetch(
+      `https://graph.facebook.com/${this.graphVersion}/${this.phoneNumberId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(messagePayload),
+      },
+    );
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Meta API error: ${error}`);
+    }
+
+    const data = await response.json();
+    return { id: data.messages?.[0]?.id, status: "sent" };
   }
 
   async send(to: string, body?: string, mediaUrl?: string): Promise<SendMessageResponse> {
@@ -99,25 +154,40 @@ export class MetaProvider implements IWhatsAppProvider {
       messagePayload.text = { body };
     }
 
-    const response = await fetch(
-      `https://graph.facebook.com/${this.graphVersion}/${this.phoneNumberId}/messages`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(messagePayload),
-      },
-    );
+    return await this.postMessage(messagePayload);
+  }
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Meta API error: ${error}`);
+  async sendTemplate(to: string, template: MetaTemplateMessage): Promise<SendMessageResponse> {
+    if (!this.token || !this.phoneNumberId) {
+      throw new Error("Meta credentials not configured. Please set META_TOKEN and META_PHONE_NUMBER_ID environment variables.");
     }
 
-    const data = await response.json();
-    return { id: data.messages?.[0]?.id, status: "sent" };
+    if (!template?.name) {
+      throw new Error("Template name is required.");
+    }
+
+    const cleanPhone = to.replace(/\D/g, "");
+    const templateLanguage = template.language;
+    const language =
+      typeof templateLanguage === "string"
+        ? { code: templateLanguage.trim() }
+        : templateLanguage &&
+          typeof templateLanguage === "object" &&
+          typeof templateLanguage.code === "string"
+        ? { ...templateLanguage, code: templateLanguage.code.trim() }
+        : { code: "en_US" };
+
+    const messagePayload = {
+      messaging_product: "whatsapp",
+      to: cleanPhone,
+      type: "template",
+      template: {
+        ...template,
+        language,
+      },
+    };
+
+    return await this.postMessage(messagePayload);
   }
 
   verifyWebhook(request: any): boolean {
