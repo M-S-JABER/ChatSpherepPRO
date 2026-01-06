@@ -28,6 +28,8 @@ type ConversationListProps = {
   showArchived?: boolean;
   onToggleArchived?: () => void;
   onArchive?: (id: string, archived: boolean) => void;
+  onArchiveAll?: (conversationIds: string[]) => void;
+  isArchivingAll?: boolean;
   onCreateConversation?: (payload: { phone: string; body?: string }) => void;
   pinnedConversationIds?: string[];
   onTogglePin?: (conversation: Conversation, willPin: boolean) => void;
@@ -113,6 +115,8 @@ export function ConversationList({
   showArchived = false,
   onToggleArchived,
   onArchive,
+  onArchiveAll,
+  isArchivingAll = false,
   onCreateConversation,
   pinnedConversationIds = [],
   onTogglePin,
@@ -148,6 +152,11 @@ export function ConversationList({
   const otherConversations = useMemo(
     () => filteredConversations.filter((conv) => !pinnedSet.has(conv.id)),
     [filteredConversations, pinnedSet],
+  );
+
+  const archiveAllTargets = useMemo(
+    () => filteredConversations.filter((conv) => !conv.archived),
+    [filteredConversations],
   );
 
   const virtualizer = useVirtualizer({
@@ -240,7 +249,7 @@ export function ConversationList({
           </div>
         </div>
 
-        <div className="flex flex-col items-end gap-2">
+        <div className="flex items-center gap-1">
           {onTogglePin && (
             <Button
               variant="ghost"
@@ -255,11 +264,35 @@ export function ConversationList({
               }}
               disabled={pinningConversationId === conv.id}
               aria-label={isPinned ? "Unpin chat" : "Pin chat"}
+              data-testid={`button-pin-${conv.id}`}
             >
               {pinningConversationId === conv.id ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Pin className={cn("h-4 w-4 transition", isPinned ? "-rotate-45" : "rotate-0")} />
+              )}
+            </Button>
+          )}
+
+          {onArchive && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-8 w-8 text-muted-foreground opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100",
+                conv.archived ? "text-emerald-600 hover:text-emerald-700" : "hover:text-foreground",
+              )}
+              onClick={(event) => {
+                event.stopPropagation();
+                onArchive(conv.id, !conv.archived);
+              }}
+              aria-label={conv.archived ? "Unarchive chat" : "Archive chat"}
+              data-testid={`button-archive-${conv.id}`}
+            >
+              {conv.archived ? (
+                <ArchiveRestore className="h-4 w-4" />
+              ) : (
+                <Archive className="h-4 w-4" />
               )}
             </Button>
           )}
@@ -393,12 +426,32 @@ export function ConversationList({
                 data-testid="input-search-conversations"
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {onCreateConversation && (
                 <NewConversationDialog
                   onCreateConversation={onCreateConversation}
-                  triggerClassName="h-9 flex-1 justify-center rounded-full"
+                  triggerClassName="h-9 flex-1 min-w-[140px] justify-center rounded-full"
                 />
+              )}
+              {onArchiveAll && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 flex-1 min-w-[140px] rounded-full border border-border/70 px-3 text-sm"
+                  onClick={() => {
+                    if (showArchived || archiveAllTargets.length === 0) return;
+                    onArchiveAll(archiveAllTargets.map((conv) => conv.id));
+                  }}
+                  disabled={showArchived || archiveAllTargets.length === 0 || isArchivingAll}
+                  aria-label="Archive all conversations"
+                >
+                  {isArchivingAll ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Archive className="mr-2 h-4 w-4" />
+                  )}
+                  Archive all
+                </Button>
               )}
               {onToggleArchived && (
                 <Button
@@ -433,7 +486,10 @@ export function ConversationList({
         </div>
 
         <div className="flex-1 min-h-0">
-          <div ref={listParentRef} className="h-full overflow-y-auto">
+          <div
+            ref={listParentRef}
+            className="h-full overflow-y-auto overscroll-contain scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted/30 hover:scrollbar-thumb-muted/40"
+          >
             <div className="flex flex-col gap-4 px-4 py-4">
               {pinnedOrdered.length > 0 && (
                 <div className="space-y-2">

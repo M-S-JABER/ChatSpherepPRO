@@ -142,7 +142,7 @@ export function ConversationInfoDrawer({
         </Button>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-5 py-4">
+      <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted/30 hover:scrollbar-thumb-muted/40">
         <Tabs defaultValue="about" className="flex h-full flex-col">
           <TabsList className="sticky top-0 mb-4 bg-card/95">
             <TabsTrigger value="about" className="text-xs">

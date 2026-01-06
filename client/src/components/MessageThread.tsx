@@ -714,7 +714,7 @@ export function MessageThread({
         <div className="relative flex min-h-0 flex-1 flex-col">
           <div
             ref={scrollContainerRef}
-            className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-[#2c6a4b] scrollbar-track-[#0f1a1e] hover:scrollbar-thumb-[#367a57]"
+            className="flex-1 overflow-y-auto overscroll-contain scrollbar-thin scrollbar-thumb-[#2c6a4b] scrollbar-track-[#0f1a1e] hover:scrollbar-thumb-[#367a57]"
             style={{
               backgroundImage: "var(--chat-thread-wallpaper)",
               backgroundSize: "240px 240px",

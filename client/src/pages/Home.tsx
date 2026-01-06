@@ -207,6 +207,37 @@ export default function Home() {
     },
   });
 
+  const archiveAllMutation = useMutation({
+    mutationFn: async (conversationIds: string[]) => {
+      if (!conversationIds.length) return;
+      await Promise.all(
+        conversationIds.map((id) =>
+          apiRequest("PATCH", `/api/conversations/${id}/archive`, { archived: true }),
+        ),
+      );
+    },
+    onSuccess: (_data, conversationIds) => {
+      if (selectedConversationId && conversationIds.includes(selectedConversationId)) {
+        setSelectedConversationId(null);
+        if (!isTablet) {
+          setActiveMobilePanel("list");
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+      toast({
+        title: "Conversations archived",
+        description: `Archived ${conversationIds.length} chat${conversationIds.length === 1 ? "" : "s"}.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to archive all conversations",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const deleteMessageMutation = useMutation<{ ok: boolean; conversationId?: string }, Error, string>({
     mutationFn: async (messageId: string) => {
       const res = await apiRequest("DELETE", `/api/messages/${messageId}`);
@@ -354,6 +385,11 @@ export default function Home() {
     pinMutation.mutate({ conversationId: conversation.id, pinned: willPin });
   };
 
+  const handleArchiveAll = (conversationIds: string[]) => {
+    if (!conversationIds.length) return;
+    archiveAllMutation.mutate(conversationIds);
+  };
+
   const handleSendMessage = async (
     body: string,
     mediaUrl?: string,
@@ -428,6 +464,8 @@ export default function Home() {
               showArchived={showArchived}
               onToggleArchived={() => setShowArchived((value) => !value)}
               onArchive={(id, archived) => archiveMutation.mutate({ id, archived })}
+              onArchiveAll={handleArchiveAll}
+              isArchivingAll={archiveAllMutation.isPending}
               onCreateConversation={createConversationMutation.mutate}
               pinnedConversationIds={pinnedConversationIds}
               onTogglePin={handleTogglePinConversation}
@@ -495,6 +533,8 @@ export default function Home() {
                 showArchived={showArchived}
                 onToggleArchived={() => setShowArchived((value) => !value)}
                 onArchive={(id, archived) => archiveMutation.mutate({ id, archived })}
+                onArchiveAll={handleArchiveAll}
+                isArchivingAll={archiveAllMutation.isPending}
                 onCreateConversation={createConversationMutation.mutate}
                 pinnedConversationIds={pinnedConversationIds}
                 onTogglePin={handleTogglePinConversation}
