@@ -27,16 +27,16 @@ export function NewConversationDialog({
   showLabel = true,
 }: NewConversationDialogProps) {
   const [open, setOpen] = useState(false);
-  const [phone, setPhone] = useState("");
+  const [phone, setPhone] = useState("964");
   const [message, setMessage] = useState("");
+  const isValidPhone = /^\d{13,15}$/.test(phone.trim());
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     const trimmed = phone.trim();
     if (!trimmed) return;
-    const isValid = /^\+?\d{6,15}$/.test(trimmed);
-    if (!isValid) {
-      setPhone("");
+    if (!isValidPhone) {
+      setPhone("964");
       return;
     }
 
@@ -46,7 +46,7 @@ export function NewConversationDialog({
       phone: trimmed,
       body: trimmedMessage.length > 0 ? trimmedMessage : undefined,
     });
-    setPhone("");
+    setPhone("964");
     setMessage("");
     setOpen(false);
   };
@@ -77,14 +77,14 @@ export function NewConversationDialog({
               <Input
                 id="phone"
                 type="tel"
-                placeholder="+1234567890"
+                placeholder="9647xxxxxxxxx"
                 value={phone}
                 onChange={(event) => setPhone(event.target.value)}
                 className="font-mono"
                 data-testid="input-phone-number"
               />
               <p className="text-xs text-muted-foreground">
-                Enter digits only, optionally starting with +. Minimum 6 digits.
+                Country code is required. Default is 964. Minimum 10 digits after the 964 sign.
               </p>
             </div>
             <div className="grid gap-2">
@@ -105,12 +105,15 @@ export function NewConversationDialog({
             <Button
               type="button"
               variant="outline"
-              onClick={() => setOpen(false)}
+              onClick={() => {
+                setOpen(false);
+                setPhone("964");
+              }}
               data-testid="button-cancel"
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!/^\+?\d{6,15}$/.test(phone.trim())} data-testid="button-start-chat">
+            <Button type="submit" disabled={!isValidPhone} data-testid="button-start-chat">
               Start Chat
             </Button>
           </DialogFooter>
