@@ -286,8 +286,8 @@ export default function Settings() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto p-6">
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-y-auto bg-background">
+      <div className="w-full px-4 py-6 md:px-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
             <Link href="/">

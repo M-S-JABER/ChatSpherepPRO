@@ -114,8 +114,8 @@ export default function Statistics() {
   };
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-y-auto bg-background">
+      <div className="w-full space-y-6 px-4 py-6 md:px-6">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <Link href="/">
