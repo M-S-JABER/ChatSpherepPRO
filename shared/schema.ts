@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, json, jsonb, boolean, primaryKey, integer, date } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, json, boolean, primaryKey, integer, date } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -174,16 +174,16 @@ export const webhooks = pgTable("webhooks", {
 export const webhookEvents = pgTable("webhook_events", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   webhookId: varchar("webhook_id").references(() => webhooks.id, { onDelete: "set null" }),
-  headers: jsonb("headers").$type<Record<string, any>>(),
-  query: jsonb("query").$type<Record<string, any>>(),
-  body: jsonb("body").$type<Record<string, any> | null>(),
-  response: jsonb("response").$type<Record<string, any> | null>(),
+  headers: json("headers").$type<Record<string, any>>(),
+  query: json("query").$type<Record<string, any>>(),
+  body: json("body").$type<Record<string, any> | null>(),
+  response: json("response").$type<Record<string, any> | null>(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
 export const appSettings = pgTable("app_settings", {
   key: varchar("key").primaryKey(),
-  value: jsonb("value").$type<Record<string, any>>(),
+  value: json("value").$type<Record<string, any>>(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 

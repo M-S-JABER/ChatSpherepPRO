@@ -1,6 +1,8 @@
 node_modules
 .vscode
 scripts
+!server/scripts/
+!server/scripts/**
 .env
 uploads
 .gitignore

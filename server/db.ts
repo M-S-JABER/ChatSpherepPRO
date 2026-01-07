@@ -19,7 +19,7 @@ export async function ensureSchema(): Promise<void> {
     await client.query(`
       CREATE TABLE IF NOT EXISTS app_settings (
         key varchar PRIMARY KEY,
-        value jsonb,
+        value json,
         updated_at timestamptz DEFAULT now()
       );
     `);
@@ -42,10 +42,10 @@ export async function ensureSchema(): Promise<void> {
       CREATE TABLE IF NOT EXISTS webhook_events (
         id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
         webhook_id varchar REFERENCES webhooks(id) ON DELETE SET NULL,
-        headers jsonb,
-        query jsonb,
-        body jsonb,
-        response jsonb,
+        headers json,
+        query json,
+        body json,
+        response json,
         created_at timestamptz DEFAULT now()
       );
     `);
