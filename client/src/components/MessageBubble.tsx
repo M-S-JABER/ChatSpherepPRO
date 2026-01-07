@@ -14,6 +14,7 @@ import {
   FileSpreadsheet,
   FileText,
   FileVideo,
+  Globe,
   Loader2,
   MoreHorizontal,
   Reply,
@@ -47,6 +48,28 @@ const replyLabel = (replyTo: ChatMessage["replyTo"] | null | undefined) => {
   const senderLabel = replyTo?.senderLabel?.trim();
   if (senderLabel) return senderLabel;
   return replyTo?.direction === "outbound" ? "Agent" : "Customer";
+};
+
+const urlPattern =
+  /(https?:\/\/(?:www\.)?[a-zA-Z0-9._%+-]+(?:\.[a-zA-Z]{2,})+(?:[/?#][^\s]*)?)/i;
+
+const extractFirstUrl = (text: string): string | null => {
+  const match = text.match(urlPattern);
+  return match ? match[0] : null;
+};
+
+const buildUrlPreview = (url: string) => {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, "");
+    const path = parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : "";
+    return {
+      host: host || parsed.hostname,
+      path: path || parsed.href,
+    };
+  } catch {
+    return { host: url, path: url };
+  }
 };
 
 const formatFileSize = (bytes?: number | null): string => {
@@ -161,6 +184,8 @@ export function MessageBubble({
   const outboundSenderLabel = message.senderName?.trim() || "Agent";
 
   const bodyContent = message.body?.trim() ?? "";
+  const linkUrl = !media && bodyContent ? extractFirstUrl(bodyContent) : null;
+  const linkPreview = linkUrl ? buildUrlPreview(linkUrl) : null;
 
   const bubbleClasses = cn(
     "w-fit max-w-[92%] rounded-3xl px-4 py-2 shadow-sm transition md:max-w-[72%] xl:max-w-[60%]",
@@ -286,6 +311,35 @@ export function MessageBubble({
             <p className="whitespace-pre-wrap text-[15px] leading-6">
               {highlight(bodyContent, searchTerm)}
             </p>
+          )}
+
+          {linkUrl && linkPreview && (
+            <a
+              href={linkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                "mt-2 flex items-center gap-3 rounded-2xl border px-3 py-2 text-left text-xs transition",
+                isOutbound
+                  ? "border-white/20 bg-white/10 text-primary-foreground hover:bg-white/15"
+                  : "border-border/70 bg-white/70 text-foreground hover:bg-white",
+              )}
+            >
+              <div
+                className={cn(
+                  "flex h-9 w-9 items-center justify-center rounded-xl",
+                  isOutbound ? "bg-white/15 text-primary-foreground" : "bg-primary/10 text-primary",
+                )}
+              >
+                <Globe className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-semibold">{linkPreview.host}</p>
+                <p className={cn("truncate text-[11px]", isOutbound ? "text-primary-foreground/80" : "text-muted-foreground")}>
+                  {linkPreview.path}
+                </p>
+              </div>
+            </a>
           )}
 
           <div

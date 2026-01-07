@@ -300,8 +300,62 @@ export class MetaProvider implements IWhatsAppProvider {
             event.body = msg.video?.caption ?? msg.caption;
           } else if (msg.type === "audio") {
             event.media = this.buildMediaDescriptor("audio", msg.audio);
+          } else if (msg.type === "sticker") {
+            event.media = this.buildMediaDescriptor("image", msg.sticker);
+            event.body = msg.sticker?.emoji ? `Sticker ${msg.sticker.emoji}` : "Sticker";
+          } else if (msg.type === "location") {
+            const lat = Number(msg.location?.latitude);
+            const lng = Number(msg.location?.longitude);
+            const lines = [];
+            if (msg.location?.name) lines.push(msg.location.name);
+            if (msg.location?.address) lines.push(msg.location.address);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+              lines.push(`https://maps.google.com/?q=${lat},${lng}`);
+            }
+            event.body = lines.length ? lines.join("\n") : "Shared a location";
+          } else if (msg.type === "contacts") {
+            const contacts = Array.isArray(msg.contacts) ? msg.contacts : [];
+            const names = contacts
+              .map((contact: any) => contact?.name?.formatted_name || contact?.name?.first_name)
+              .filter(Boolean);
+            event.body = names.length ? `Contact: ${names.join(", ")}` : "Shared a contact";
+          } else if (msg.type === "interactive") {
+            const interactive = msg.interactive;
+            if (interactive?.type === "button_reply") {
+              event.body =
+                interactive?.button_reply?.title ?? interactive?.button_reply?.id ?? "Button reply";
+            } else if (interactive?.type === "list_reply") {
+              event.body =
+                interactive?.list_reply?.title ?? interactive?.list_reply?.id ?? "List reply";
+            } else if (interactive?.type === "nfm_reply") {
+              event.body = interactive?.nfm_reply?.body ?? "Flow reply";
+            } else {
+              event.body = interactive?.type ? `Interactive: ${interactive.type}` : "Interactive message";
+            }
+          } else if (msg.type === "button") {
+            event.body = msg.button?.text ?? "Button response";
+          } else if (msg.type === "reaction") {
+            event.body = msg.reaction?.emoji ? `Reaction ${msg.reaction.emoji}` : "Reaction";
+          } else if (msg.type === "order") {
+            event.body = "Order received";
+          } else if (msg.type === "system") {
+            event.body = msg.system?.body ?? "System message";
           } else {
             logger.debug({ type: msg.type }, "meta_webhook_unknown_message_type");
+          }
+
+          if (!event.body) {
+            event.body =
+              msg.text?.body ??
+              msg.caption ??
+              msg.body ??
+              msg.title ??
+              msg.name ??
+              undefined;
+          }
+
+          if (!event.body && !event.media && msg.type) {
+            event.body = `Unsupported message type: ${msg.type}`;
           }
 
           events.push(event);
