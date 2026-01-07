@@ -38,7 +38,7 @@ export default function Home() {
   const isLargeDesktop = useMediaQuery("(min-width: 1200px)");
 
   // Initialize unread counts management
-  const { incrementUnread } = useUnreadCounts(selectedConversationId);
+  const { counts: unreadCounts, incrementUnread } = useUnreadCounts(selectedConversationId);
 
   const handleWebSocketMessage = useCallback((event: string, data: any) => {
     if (
@@ -47,6 +47,14 @@ export default function Home() {
       event === "message_media_updated"
     ) {
       queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+      queryClient.refetchQueries({
+        queryKey: ["/api/conversations", { archived: false }],
+        exact: true,
+      });
+      queryClient.refetchQueries({
+        queryKey: ["/api/conversations", { archived: true }],
+        exact: true,
+      });
 
       if (data.conversationId) {
         queryClient.invalidateQueries({
@@ -69,7 +77,7 @@ export default function Home() {
         });
       }
     }
-  }, []);
+  }, [incrementUnread]);
 
   useWebSocket({
     onMessage: handleWebSocketMessage,
@@ -89,7 +97,30 @@ export default function Home() {
     },
   });
 
-  const conversations = conversationsData?.items ?? [];
+  const conversations = useMemo(() => {
+    const items = conversationsData?.items ?? [];
+    return items
+      .filter((conversation) =>
+        showArchived ? conversation.archived : !conversation.archived,
+      )
+      .map((conversation) => {
+        const unreadCount = unreadCounts[conversation.id] ?? 0;
+        if (unreadCount <= 0) {
+          return conversation;
+        }
+        const baseMetadata =
+          conversation.metadata && typeof conversation.metadata === "object"
+            ? conversation.metadata
+            : {};
+        return {
+          ...conversation,
+          metadata: {
+            ...baseMetadata,
+            unreadCount,
+          },
+        };
+      });
+  }, [conversationsData?.items, showArchived, unreadCounts]);
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedConversationId) ?? null,
     [conversations, selectedConversationId],

@@ -240,7 +240,7 @@ export function ConversationList({
                   exit={{ opacity: 0, scale: 0.8 }}
                   className="relative"
                 >
-                  <span className="absolute right-0 flex h-5 min-w-[22px] -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full bg-primary/90 text-[11px] font-semibold text-primary-foreground shadow-sm backdrop-blur-sm">
+                  <span className="absolute right-0 flex h-5 min-w-[22px] -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full bg-destructive/90 text-[11px] font-semibold text-destructive-foreground shadow-sm backdrop-blur-sm">
                     {unreadCount > 99 ? "99+" : unreadCount}
                   </span>
                 </motion.div>

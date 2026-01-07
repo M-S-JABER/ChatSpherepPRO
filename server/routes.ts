@@ -1353,6 +1353,10 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
           console.log(`📞 Using existing conversation: ${conversation.id}`);
         }
 
+        if (conversation.archived) {
+          conversation = await storage.toggleConversationArchive(conversation.id, false);
+        }
+
         const pendingMedia = createPendingMediaDescriptor(event.media);
 
         console.log(`💾 Saving message to database...`);
@@ -1596,6 +1600,10 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
         conversation = await storage.createConversation({
           phone: from,
         });
+      }
+
+      if (conversation.archived) {
+        conversation = await storage.toggleConversationArchive(conversation.id, false);
       }
 
       const message = await storage.createMessage({
