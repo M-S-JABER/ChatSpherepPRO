@@ -82,6 +82,7 @@ export default function UserManagement() {
   const [editFormData, setEditFormData] = useState({
     username: "",
     role: "user" as "user" | "admin",
+    password: "",
   });
 
   const [deletingUser, setDeletingUser] = useState<Omit<User, "password"> | null>(null);
@@ -137,7 +138,7 @@ export default function UserManagement() {
       data,
     }: {
       id: string;
-      data: { username: string; role: string };
+      data: { username: string; role: string; password?: string };
     }) => {
       const res = await apiRequest("PUT", `/api/admin/users/${id}`, data);
       return res.json();
@@ -189,9 +190,14 @@ export default function UserManagement() {
     event.preventDefault();
     if (!editingUser) return;
 
+    const trimmedPassword = editFormData.password.trim();
     updateUserMutation.mutate({
       id: editingUser.id,
-      data: editFormData,
+      data: {
+        username: editFormData.username,
+        role: editFormData.role,
+        ...(trimmedPassword ? { password: trimmedPassword } : {}),
+      },
     });
   };
 
@@ -301,6 +307,7 @@ export default function UserManagement() {
                                 setEditFormData({
                                   username: user.username,
                                   role: user.role as "user" | "admin",
+                                  password: "",
                                 });
                               }}
                               aria-label={`Edit ${user.username}`}
@@ -421,7 +428,7 @@ export default function UserManagement() {
             <DialogHeader>
               <DialogTitle>Edit user</DialogTitle>
               <DialogDescription>
-                Update username or role. Password changes are not supported from here.
+                Update username, role, or password. Leave password empty to keep it unchanged.
               </DialogDescription>
             </DialogHeader>
 
@@ -456,6 +463,22 @@ export default function UserManagement() {
                   <SelectItem value="admin">Administrator</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-password">New password (optional)</Label>
+              <Input
+                id="edit-password"
+                type="password"
+                minLength={6}
+                placeholder="Leave blank to keep current password"
+                value={editFormData.password}
+                onChange={(event) =>
+                  setEditFormData({ ...editFormData, password: event.target.value })
+                }
+                data-testid="input-edit-password"
+              />
+              <p className="text-xs text-muted-foreground">Minimum 6 characters.</p>
             </div>
 
             <DialogFooter>

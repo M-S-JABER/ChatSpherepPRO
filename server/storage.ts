@@ -64,7 +64,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   getAllUsers(): Promise<User[]>;
-  updateUser(id: string, updates: Partial<Pick<User, "username" | "role">>): Promise<User>;
+  updateUser(id: string, updates: Partial<Pick<User, "username" | "role" | "password">>): Promise<User>;
   deleteUser(id: string): Promise<void>;
   
   getStatistics(): Promise<any>;
@@ -441,7 +441,7 @@ export class DatabaseStorage implements IStorage {
       .orderBy(users.createdAt);
   }
 
-  async updateUser(id: string, updates: Partial<Pick<User, "username" | "role">>): Promise<User> {
+  async updateUser(id: string, updates: Partial<Pick<User, "username" | "role" | "password">>): Promise<User> {
     const [user] = await db
       .update(users)
       .set(updates)

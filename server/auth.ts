@@ -175,7 +175,7 @@ export function setupAuth(app: Express) {
   app.put("/api/admin/users/:id", requireAdmin, async (req, res, next) => {
     try {
       const { id } = req.params;
-      const { username, role } = req.body;
+      const { username, role, password } = req.body;
 
       if (!username) {
         return res.status(400).send("Username is required");
@@ -197,9 +197,18 @@ export function setupAuth(app: Express) {
 
       const userRole = role === "admin" ? "admin" : "user";
 
+      let hashedPassword: string | undefined;
+      if (password !== undefined) {
+        if (typeof password !== "string" || password.length < 6) {
+          return res.status(400).send("Password must be at least 6 characters");
+        }
+        hashedPassword = await hashPassword(password);
+      }
+
       const updatedUser = await storage.updateUser(id, {
         username,
         role: userRole,
+        ...(hashedPassword ? { password: hashedPassword } : {}),
       });
 
       const { password: _, ...userWithoutPassword } = updatedUser;
