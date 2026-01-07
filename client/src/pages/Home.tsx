@@ -32,7 +32,8 @@ export default function Home() {
 
   const { toast } = useToast();
   const { user } = useAuth();
-  const canDeleteMessages = user?.role === "admin";
+  const canDeleteMessages = false;
+  const canDeleteConversations = user?.role === "admin";
 
   const isTablet = useMediaQuery("(min-width: 768px)");
   const isLargeDesktop = useMediaQuery("(min-width: 1200px)");
@@ -524,7 +525,7 @@ export default function Home() {
                 deletingMessageId={deleteMessageMutation.variables ?? null}
                 isDeletingMessage={deleteMessageMutation.isPending}
                 onDeleteConversation={
-                  canDeleteMessages && selectedConversation ? handleDeleteConversation : undefined
+                  canDeleteConversations && selectedConversation ? handleDeleteConversation : undefined
                 }
                 isDeletingConversation={deleteConversationMutation.isPending}
                 showMobileHeader={!isTablet}
@@ -592,7 +593,7 @@ export default function Home() {
                 deletingMessageId={deleteMessageMutation.variables ?? null}
                 isDeletingMessage={deleteMessageMutation.isPending}
                 onDeleteConversation={
-                  canDeleteMessages && selectedConversation ? handleDeleteConversation : undefined
+                  canDeleteConversations && selectedConversation ? handleDeleteConversation : undefined
                 }
                 isDeletingConversation={deleteConversationMutation.isPending}
                 onBackToList={() => setActiveMobilePanel("list")}

@@ -1186,28 +1186,8 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
     }
   });
 
-  app.delete("/api/messages/:id", requireAdmin, async (req: Request, res: Response) => {
-    try {
-      const { id } = req.params;
-      const deleted = await storage.deleteMessage(id);
-
-      if (!deleted) {
-        return res.status(404).json({ error: "Message not found" });
-      }
-
-      broadcastMessage("message_deleted", {
-        id: deleted.id,
-        conversationId: deleted.conversationId,
-      });
-
-      res.json({
-        ok: true,
-        messageId: deleted.id,
-        conversationId: deleted.conversationId,
-      });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
+  app.delete("/api/messages/:id", requireAdmin, async (_req: Request, res: Response) => {
+    res.status(403).json({ error: "Message deletion is disabled." });
   });
 
   // Meta webhook verification (GET request)
