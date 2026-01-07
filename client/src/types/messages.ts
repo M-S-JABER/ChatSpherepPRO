@@ -10,4 +10,5 @@ export type ReplySummary = {
 
 export type ChatMessage = Message & {
   replyTo?: ReplySummary | null;
+  senderName?: string | null;
 };

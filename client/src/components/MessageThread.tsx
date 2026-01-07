@@ -237,13 +237,18 @@ export function MessageThread({
     }, []);
   }, [searchQuery, timelineItems]);
 
-  const getSenderLabel = (direction: string): ReplyContext["senderLabel"] =>
-    direction === "inbound" ? "Customer" : "Agent";
+  const getSenderLabel = (message: ChatMessage): ReplyContext["senderLabel"] => {
+    if (message.direction === "inbound") {
+      return "Customer";
+    }
+    const senderName = message.senderName?.trim();
+    return senderName ? senderName : "Agent";
+  };
 
   const handleReplySelect = (message: ChatMessage) => {
     setReplyContext({
       id: message.id,
-      senderLabel: getSenderLabel(message.direction),
+      senderLabel: getSenderLabel(message),
       snippet: buildSnippet(message.body ?? null),
     });
     composerRef.current?.insertText("");

@@ -43,8 +43,11 @@ type MessageBubbleProps = {
   isHighlighted?: boolean;
 };
 
-const replyLabel = (direction: string | null | undefined) =>
-  direction === "outbound" ? "You" : "Customer";
+const replyLabel = (replyTo: ChatMessage["replyTo"] | null | undefined) => {
+  const senderLabel = replyTo?.senderLabel?.trim();
+  if (senderLabel) return senderLabel;
+  return replyTo?.direction === "outbound" ? "Agent" : "Customer";
+};
 
 const formatFileSize = (bytes?: number | null): string => {
   if (!bytes || bytes <= 0) return "";
@@ -155,6 +158,7 @@ export function MessageBubble({
 }: MessageBubbleProps) {
   const isOutbound = message.direction === "outbound";
   const media = (message.media as MessageMedia | null) ?? null;
+  const outboundSenderLabel = message.senderName?.trim() || "Agent";
 
   const bodyContent = message.body?.trim() ?? "";
 
@@ -268,7 +272,7 @@ export function MessageBubble({
               aria-label={`View replied message ${message.replyTo?.id ?? ""}`}
             >
               <p className="text-[10px] font-semibold uppercase tracking-wider">
-                Replying to {replyLabel(message.replyTo?.direction)}
+                Replying to {replyLabel(message.replyTo)}
               </p>
               <p className="line-clamp-2 text-xs">
                 {message.replyTo?.content?.trim() ?? "Original message unavailable"}
@@ -290,6 +294,12 @@ export function MessageBubble({
               isOutbound ? "justify-end text-primary-foreground/80" : "justify-end text-muted-foreground",
             )}
           >
+            {isOutbound && (
+              <>
+                <span className="max-w-[140px] truncate">{outboundSenderLabel}</span>
+                <span aria-hidden="true">·</span>
+              </>
+            )}
             <span>{messageTime(message.createdAt)}</span>
             {statusIcon}
           </div>

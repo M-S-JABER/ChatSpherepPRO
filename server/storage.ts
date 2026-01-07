@@ -50,10 +50,10 @@ export interface IStorage {
   updateConversationLastAt(id: string): Promise<void>;
   toggleConversationArchive(id: string, archived: boolean): Promise<Conversation>;
   
-  getMessages(conversationId: string, page?: number, pageSize?: number): Promise<{ items: Array<Message & { replyTo?: ReplySummary | null }>; total: number }>;
+  getMessages(conversationId: string, page?: number, pageSize?: number): Promise<{ items: Array<Message & { replyTo?: ReplySummary | null; senderName?: string | null }>; total: number }>;
   createMessage(message: InsertMessage): Promise<Message>;
   getMessageById(id: string): Promise<Message | undefined>;
-  getMessageWithReplyById(id: string): Promise<(Message & { replyTo?: ReplySummary | null }) | undefined>;
+  getMessageWithReplyById(id: string): Promise<(Message & { replyTo?: ReplySummary | null; senderName?: string | null }) | undefined>;
   getMessageByProviderMessageId(providerMessageId: string): Promise<Message | undefined>;
   updateMessageMedia(id: string, media: MessageMedia | null): Promise<Message | undefined>;
   deleteMessage(id: string): Promise<{ id: string; conversationId: string } | null>;
@@ -182,7 +182,7 @@ export class DatabaseStorage implements IStorage {
     conversationId: string,
     page: number = 1,
     pageSize: number = 50
-  ): Promise<{ items: Array<Message & { replyTo?: ReplySummary | null }>; total: number }> {
+  ): Promise<{ items: Array<Message & { replyTo?: ReplySummary | null; senderName?: string | null }>; total: number }> {
     const offset = (page - 1) * pageSize;
     const [itemsRaw, totalRaw] = await Promise.all([
       db
@@ -206,14 +206,22 @@ export class DatabaseStorage implements IStorage {
       .filter((value): value is string => Boolean(value));
 
     const replyMap = new Map<string, ReplySummary>();
+    let replyMessages: Array<{
+      id: string;
+      content: string | null;
+      direction: string;
+      createdAt: Date;
+      sentByUserId: string | null;
+    }> = [];
 
     if (replyIds.length > 0) {
-      const replyMessages = (await db
+      replyMessages = (await db
         .select({
           id: messages.id,
           content: messages.body,
           direction: messages.direction,
           createdAt: messages.createdAt,
+          sentByUserId: messages.sentByUserId,
         })
         .from(messages)
         .where(inArray(messages.id, replyIds))
@@ -222,26 +230,51 @@ export class DatabaseStorage implements IStorage {
         content: string | null;
         direction: string;
         createdAt: Date;
+        sentByUserId: string | null;
       }>;
-
-      replyMessages.forEach((reply) => {
-        const normalizedDirection = reply.direction === "outbound" ? "outbound" : "inbound";
-        replyMap.set(reply.id, {
-          id: reply.id,
-          content: reply.content,
-          direction: normalizedDirection,
-          senderLabel: toSenderLabel(normalizedDirection),
-          createdAt: reply.createdAt,
-        });
-      });
     }
 
-    const itemsWithReplies: Array<Message & { replyTo?: ReplySummary | null }> = items.map(
+    const senderIds = new Set<string>();
+    items.forEach((message) => {
+      if (message.sentByUserId) {
+        senderIds.add(message.sentByUserId);
+      }
+    });
+    replyMessages.forEach((reply) => {
+      if (reply.sentByUserId) {
+        senderIds.add(reply.sentByUserId);
+      }
+    });
+
+    const senderMap = new Map<string, string>();
+    if (senderIds.size > 0) {
+      const senderRows = await db
+        .select({ id: users.id, username: users.username })
+        .from(users)
+        .where(inArray(users.id, Array.from(senderIds)));
+      senderRows.forEach((row) => senderMap.set(row.id, row.username));
+    }
+
+    replyMessages.forEach((reply) => {
+      const normalizedDirection = reply.direction === "outbound" ? "outbound" : "inbound";
+      const senderName = reply.sentByUserId ? senderMap.get(reply.sentByUserId) ?? null : null;
+      replyMap.set(reply.id, {
+        id: reply.id,
+        content: reply.content,
+        direction: normalizedDirection,
+        senderLabel: senderName ?? toSenderLabel(normalizedDirection),
+        createdAt: reply.createdAt,
+      });
+    });
+
+    const itemsWithReplies: Array<Message & { replyTo?: ReplySummary | null; senderName?: string | null }> = items.map(
       (message) => {
         const normalizedDirection = message.direction === "outbound" ? "outbound" : "inbound";
+        const senderName = message.sentByUserId ? senderMap.get(message.sentByUserId) ?? null : null;
         return {
           ...message,
           direction: normalizedDirection,
+          senderName,
           replyTo: message.replyToMessageId ? replyMap.get(message.replyToMessageId) ?? null : null,
         };
       },
@@ -284,14 +317,27 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getMessageWithReplyById(id: string): Promise<(Message & { replyTo?: ReplySummary | null }) | undefined> {
+  async getMessageWithReplyById(id: string): Promise<(Message & { replyTo?: ReplySummary | null; senderName?: string | null }) | undefined> {
     const message = await this.getMessageById(id);
     if (!message) return undefined;
 
     const normalizedMessageDirection = message.direction === "outbound" ? "outbound" : "inbound";
+    const senderIds = new Set<string>();
+    if (message.sentByUserId) {
+      senderIds.add(message.sentByUserId);
+    }
 
     if (!message.replyToMessageId) {
-      return { ...message, direction: normalizedMessageDirection, replyTo: null };
+      let senderName: string | null = null;
+      if (message.sentByUserId) {
+        const [sender] = await db
+          .select({ username: users.username })
+          .from(users)
+          .where(eq(users.id, message.sentByUserId))
+          .limit(1);
+        senderName = sender?.username ?? null;
+      }
+      return { ...message, direction: normalizedMessageDirection, senderName, replyTo: null };
     }
 
     const [reply] = (await db
@@ -300,6 +346,7 @@ export class DatabaseStorage implements IStorage {
         content: messages.body,
         direction: messages.direction,
         createdAt: messages.createdAt,
+        sentByUserId: messages.sentByUserId,
       })
       .from(messages)
       .where(eq(messages.id, message.replyToMessageId))) as Array<{
@@ -307,22 +354,40 @@ export class DatabaseStorage implements IStorage {
         content: string | null;
         direction: string;
         createdAt: Date;
+        sentByUserId: string | null;
       }>;
 
+    if (reply?.sentByUserId) {
+      senderIds.add(reply.sentByUserId);
+    }
+
+    const senderMap = new Map<string, string>();
+    if (senderIds.size > 0) {
+      const senderRows = await db
+        .select({ id: users.id, username: users.username })
+        .from(users)
+        .where(inArray(users.id, Array.from(senderIds)));
+      senderRows.forEach((row) => senderMap.set(row.id, row.username));
+    }
+
+    const senderName = message.sentByUserId ? senderMap.get(message.sentByUserId) ?? null : null;
+
     if (!reply) {
-      return { ...message, direction: normalizedMessageDirection, replyTo: null };
+      return { ...message, direction: normalizedMessageDirection, senderName, replyTo: null };
     }
 
     const normalizedReplyDirection = reply.direction === "outbound" ? "outbound" : "inbound";
+    const replySenderName = reply.sentByUserId ? senderMap.get(reply.sentByUserId) ?? null : null;
 
     return {
       ...message,
       direction: normalizedMessageDirection,
+      senderName,
       replyTo: {
         id: reply.id,
         content: reply.content,
         direction: normalizedReplyDirection,
-        senderLabel: toSenderLabel(normalizedReplyDirection),
+        senderLabel: replySenderName ?? toSenderLabel(normalizedReplyDirection),
         createdAt: reply.createdAt,
       },
     } as Message & { replyTo?: ReplySummary | null };
