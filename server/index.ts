@@ -91,6 +91,10 @@ app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: any;
+  const shouldIncludePreview =
+    typeof logger.isLevelEnabled === "function"
+      ? logger.isLevelEnabled("debug")
+      : env.LOG_LEVEL === "debug" || env.LOG_LEVEL === "trace";
 
   const originalJson = res.json.bind(res);
   res.json = (body: any) => {
@@ -107,9 +111,10 @@ app.use((req, res, next) => {
           path,
           statusCode: res.statusCode,
           durationMs: Date.now() - start,
-          responsePreview: capturedJsonResponse
-            ? JSON.stringify(capturedJsonResponse).slice(0, 200)
-            : undefined,
+          responsePreview:
+            shouldIncludePreview && capturedJsonResponse
+              ? JSON.stringify(capturedJsonResponse).slice(0, 200)
+              : undefined,
         },
         "API request completed"
       );
@@ -175,7 +180,7 @@ app.use((req, res, next) => {
   server.listen(listenOptions as any, () => {
     logger.info(
       { event: "server_started", port, host },
-      `🚀 Serving on http://${host}:${port}`
+      `Serving on http://${host}:${port}`
     );
   });
 })();

@@ -8,6 +8,7 @@ import {
 } from "./base";
 import crypto from "crypto";
 import path from "path";
+import { logger } from "../logger";
 
 export type MetaTemplateComponentParameter = {
   type: "text" | "currency" | "date_time" | "image" | "video" | "document" | "payload";
@@ -249,78 +250,66 @@ export class MetaProvider implements IWhatsAppProvider {
   parseIncoming(payload: any): IncomingMessageEvent[] {
     const events: IncomingMessageEvent[] = [];
 
-    console.log('🔍 MetaProvider.parseIncoming - Raw payload:', JSON.stringify(payload, null, 2));
-
-    if (!payload.entry) {
-      console.warn('⚠️ MetaProvider.parseIncoming - No entry in payload');
+    if (!payload?.entry) {
+      logger.warn(
+        {
+          payloadKeys: payload && typeof payload === "object" ? Object.keys(payload) : [],
+        },
+        "meta_webhook_payload_missing_entry",
+      );
       return events;
     }
 
-    console.log(`📥 MetaProvider.parseIncoming - Processing ${payload.entry.length} entries`);
-
     for (const entry of payload.entry) {
-      console.log('📋 MetaProvider.parseIncoming - Processing entry:', JSON.stringify(entry, null, 2));
-      
-      if (!entry.changes) {
-        console.warn('⚠️ MetaProvider.parseIncoming - No changes in entry');
+      if (!entry?.changes) {
+        logger.debug({ entryId: entry?.id }, "meta_webhook_entry_missing_changes");
         continue;
       }
 
       for (const change of entry.changes) {
-        console.log('🔄 MetaProvider.parseIncoming - Processing change:', JSON.stringify(change, null, 2));
-        
-        if (change.value?.messages) {
-          console.log(`💬 MetaProvider.parseIncoming - Processing ${change.value.messages.length} messages`);
-          
-          for (const msg of change.value.messages) {
-            console.log('📨 MetaProvider.parseIncoming - Processing message:', JSON.stringify(msg, null, 2));
-            
-            const timestampSeconds = Number(msg.timestamp);
-            const timestampIso = Number.isFinite(timestampSeconds)
-              ? new Date(timestampSeconds * 1000).toISOString()
-              : new Date().toISOString();
+        const messages = change?.value?.messages;
+        if (!Array.isArray(messages)) {
+          logger.debug({ entryId: entry?.id }, "meta_webhook_change_missing_messages");
+          continue;
+        }
 
-            const event: IncomingMessageEvent = {
-              from: msg.from,
-              raw: msg,
-              providerMessageId: msg.id,
-              replyToProviderMessageId: msg.context?.id,
-              timestamp: timestampIso,
-            };
+        for (const msg of messages) {
+          const timestampSeconds = Number(msg.timestamp);
+          const timestampIso = Number.isFinite(timestampSeconds)
+            ? new Date(timestampSeconds * 1000).toISOString()
+            : new Date().toISOString();
 
-            if (msg.type === "text") {
-              event.body = msg.text?.body;
-              console.log(`📝 MetaProvider.parseIncoming - Text message from ${msg.from}: ${event.body}`);
-            } else if (msg.type === "image") {
-              event.media = this.buildMediaDescriptor("image", msg.image);
-              event.body = msg.image?.caption ?? msg.caption;
-              console.log(`🖼️ MetaProvider.parseIncoming - Image message from ${msg.from}: ${event.body || 'No caption'}`);
-            } else if (msg.type === "document") {
-              event.media = this.buildMediaDescriptor("document", msg.document);
-              event.body = msg.document?.caption ?? msg.caption;
-              console.log(
-                `📄 MetaProvider.parseIncoming - Document message from ${msg.from}: ${msg.document?.filename || 'No filename'}`
-              );
-            } else if (msg.type === "video") {
-              event.media = this.buildMediaDescriptor("video", msg.video);
-              event.body = msg.video?.caption ?? msg.caption;
-              console.log(`🎬 MetaProvider.parseIncoming - Video message from ${msg.from}`);
-            } else if (msg.type === "audio") {
-              event.media = this.buildMediaDescriptor("audio", msg.audio);
-              console.log(`🎵 MetaProvider.parseIncoming - Audio message from ${msg.from}`);
-            } else {
-              console.log(`❓ MetaProvider.parseIncoming - Unknown message type: ${msg.type}`);
-            }
+          const event: IncomingMessageEvent = {
+            from: msg.from,
+            raw: msg,
+            providerMessageId: msg.id,
+            replyToProviderMessageId: msg.context?.id,
+            timestamp: timestampIso,
+          };
 
-            events.push(event);
+          if (msg.type === "text") {
+            event.body = msg.text?.body;
+          } else if (msg.type === "image") {
+            event.media = this.buildMediaDescriptor("image", msg.image);
+            event.body = msg.image?.caption ?? msg.caption;
+          } else if (msg.type === "document") {
+            event.media = this.buildMediaDescriptor("document", msg.document);
+            event.body = msg.document?.caption ?? msg.caption;
+          } else if (msg.type === "video") {
+            event.media = this.buildMediaDescriptor("video", msg.video);
+            event.body = msg.video?.caption ?? msg.caption;
+          } else if (msg.type === "audio") {
+            event.media = this.buildMediaDescriptor("audio", msg.audio);
+          } else {
+            logger.debug({ type: msg.type }, "meta_webhook_unknown_message_type");
           }
-        } else {
-          console.warn('⚠️ MetaProvider.parseIncoming - No messages in change.value');
+
+          events.push(event);
         }
       }
     }
 
-    console.log(`✅ MetaProvider.parseIncoming - Parsed ${events.length} events`);
+    logger.debug({ eventCount: events.length }, "meta_webhook_events_parsed");
     return events;
   }
 

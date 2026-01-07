@@ -1288,9 +1288,10 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
   const handleMetaWebhookEvent = async (req: Request, res: Response) => {
     const startTime = Date.now();
     
-    console.log(`🚀 Webhook POST received`);
-    console.log(`📊 Request headers:`, JSON.stringify(req.headers, null, 2));
-    console.log(`📊 Request body:`, JSON.stringify(req.body, null, 2));
+    logger.debug(
+      { event: "meta_webhook_received", path: req.path },
+      "Meta webhook received",
+    );
     
     try {
       const { provider, instance } = await createMetaProvider();
@@ -1298,12 +1299,18 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
       // Verify webhook signature if app secret is configured
       const hasAppSecret = !!(instance?.appSecret || process.env.META_APP_SECRET);
       if (hasAppSecret) {
-        console.log(`🔐 Verifying webhook signature...`);
+        logger.debug(
+          { event: "meta_webhook_signature_check" },
+          "Verifying webhook signature",
+        );
         const rawBody = (req as any).rawBody || JSON.stringify(req.body);
         const signatureValid = (provider as any).verifyWebhookSignature(req, rawBody);
         
         if (!signatureValid) {
-          console.error(`❌ Invalid webhook signature`);
+          logger.warn(
+            { event: "meta_webhook_signature_invalid" },
+            "Invalid webhook signature",
+          );
           await storage.logWebhookEvent({
             headers: req.headers,
             query: req.query,
@@ -1312,17 +1319,24 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
           });
           return res.status(401).send("Invalid signature");
         }
-        console.log(`✅ Webhook signature verified`);
+        logger.debug(
+          { event: "meta_webhook_signature_valid" },
+          "Webhook signature verified",
+        );
       } else {
-        console.log(`⚠️ No app secret configured, skipping signature verification`);
+        logger.debug(
+          { event: "meta_webhook_signature_skipped" },
+          "No app secret configured, skipping signature verification",
+        );
       }
 
-      console.log(`🔄 Parsing incoming events...`);
       const events = provider.parseIncoming(req.body);
-      console.log(`📨 Parsed ${events.length} events`);
 
       if (events.length === 0) {
-        console.warn(`⚠️ No events parsed from payload`);
+        logger.debug(
+          { event: "meta_webhook_no_events" },
+          "No message events in payload",
+        );
         await storage.logWebhookEvent({
           headers: req.headers,
           query: req.query,
@@ -1332,9 +1346,9 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
         return res.status(200).send("ok - no events");
       }
 
-      for (const event of events) {
-        console.log(`💬 Processing event from: ${event.from}`);
+      let processedCount = 0;
 
+      for (const event of events) {
         if (event.providerMessageId) {
           const existing = await storage.getMessageByProviderMessageId(event.providerMessageId);
           if (existing) {
@@ -1352,12 +1366,9 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
 
         let conversation = await storage.getConversationByPhone(event.from);
         if (!conversation) {
-          console.log(`🆕 Creating new conversation for: ${event.from}`);
           conversation = await storage.createConversation({
             phone: event.from,
           });
-        } else {
-          console.log(`📞 Using existing conversation: ${conversation.id}`);
         }
 
         if (conversation.archived) {
@@ -1374,7 +1385,6 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
           }
         }
 
-        console.log(`💾 Saving message to database...`);
         const message = await storage.createMessage({
           conversationId: conversation.id,
           direction: "inbound",
@@ -1385,8 +1395,7 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
           raw: event.raw,
           replyToMessageId: replyToId,
         } as any);
-
-        console.log(`✅ Message saved with ID: ${message.id}`);
+        processedCount += 1;
 
         await storage.logWebhookEvent({
           headers: req.headers,
@@ -1396,12 +1405,8 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
         });
 
         await storage.updateConversationLastAt(conversation.id);
-        console.log(`🔄 Updated conversation last_at timestamp`);
-
         const signedMessage = buildSignedMediaUrlsForMessage(message);
-        console.log(`📡 Broadcasting message to WebSocket clients...`);
         broadcastMessage("message_incoming", signedMessage);
-        console.log(`✅ Message broadcasted`);
 
         if (event.media) {
           ingestWhatsappMedia({
@@ -1429,12 +1434,21 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
       }
 
       const duration = Date.now() - startTime;
-      console.log(`🎉 Webhook processing completed in ${duration}ms`);
+      logger.info(
+        {
+          event: "meta_webhook_processed",
+          messageCount: processedCount,
+          durationMs: duration,
+        },
+        "Meta webhook processed",
+      );
       res.status(200).send("ok");
     } catch (error: any) {
       const duration = Date.now() - startTime;
-      console.error(`❌ Webhook error after ${duration}ms:`, error);
-      console.error(`❌ Error stack:`, error.stack);
+      logger.error(
+        { err: error, event: "meta_webhook_error", durationMs: duration },
+        "Meta webhook error",
+      );
       
       await storage.logWebhookEvent({
         headers: req.headers,
@@ -1470,7 +1484,7 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
   // Debug webhook endpoint - for testing and debugging webhook issues
   app.post("/webhook/debug", async (req: Request, res: Response) => {
     try {
-      console.log(`🔍 Debug webhook called`);
+      logger.debug({ event: "debug_webhook_called" }, "Debug webhook called");
       
       const debugInfo = await WebhookDebugger.debugWebhookFlow(
         'default',
@@ -1485,7 +1499,7 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
         timestamp: new Date().toISOString()
       });
     } catch (error: any) {
-      console.error("Debug webhook error:", error);
+      logger.error({ err: error, event: "debug_webhook_error" }, "Debug webhook error");
       res.status(500).json({ 
         success: false,
         error: error.message,
@@ -1566,7 +1580,7 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
 
       const { provider, instance } = await createMetaProvider();
       
-      console.log(`🧪 Sending test message to ${to}`);
+      logger.info({ event: "test_message_send", to }, "Sending test message");
       const result = await provider.send(to, body);
       
       res.json({
@@ -1586,7 +1600,7 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
             },
       });
     } catch (error: any) {
-      console.error("Test message error:", error);
+      logger.error({ err: error, event: "test_message_error" }, "Test message error");
       res.status(500).json({ 
         success: false,
         error: error.message 
