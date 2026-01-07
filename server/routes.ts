@@ -679,6 +679,93 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
     res.json(hooks);
   });
 
+  app.get("/api/admin/ready-messages", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const items = await storage.getReadyMessages(false);
+      res.json({ items });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/admin/ready-messages", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const name = typeof req.body?.name === "string" ? req.body.name.trim() : "";
+      const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
+      const isActive = typeof req.body?.isActive === "boolean" ? req.body.isActive : true;
+
+      if (!name) {
+        return res.status(400).json({ error: "Name is required." });
+      }
+
+      if (!body) {
+        return res.status(400).json({ error: "Message body is required." });
+      }
+
+      const item = await storage.createReadyMessage({
+        name,
+        body,
+        isActive,
+        createdByUserId: req.user?.id ?? null,
+      });
+
+      res.status(201).json({ item });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/admin/ready-messages/:id", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const updates: { name?: string; body?: string; isActive?: boolean } = {};
+
+      if (typeof req.body?.name === "string") {
+        const trimmedName = req.body.name.trim();
+        if (!trimmedName) {
+          return res.status(400).json({ error: "Name cannot be empty." });
+        }
+        updates.name = trimmedName;
+      }
+
+      if (typeof req.body?.body === "string") {
+        const trimmedBody = req.body.body.trim();
+        if (!trimmedBody) {
+          return res.status(400).json({ error: "Message body cannot be empty." });
+        }
+        updates.body = trimmedBody;
+      }
+
+      if (typeof req.body?.isActive === "boolean") {
+        updates.isActive = req.body.isActive;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "No updates provided." });
+      }
+
+      const item = await storage.updateReadyMessage(id, updates);
+
+      if (!item) {
+        return res.status(404).json({ error: "Ready message not found." });
+      }
+
+      res.json({ item });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/admin/ready-messages/:id", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteReadyMessage(id);
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Admin update endpoints
   app.patch('/api/admin/users/:id', requireAdmin, async (req: Request, res: Response) => {
     const { id } = req.params;
@@ -971,6 +1058,15 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
   app.get("/api/templates", async (_req: Request, res: Response) => {
     try {
       const items = loadTemplateCatalog();
+      res.json({ items });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/ready-messages", async (_req: Request, res: Response) => {
+    try {
+      const items = await storage.getReadyMessages(true);
       res.json({ items });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Conversation } from "@shared/schema";
+import type { Conversation, ReadyMessage } from "@shared/schema";
 import type { ChatMessage } from "@/types/messages";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,7 @@ interface MessageThreadProps {
     options?: SendMessageOptions,
   ) => Promise<void> | void;
   templates?: TemplateCatalogItem[];
+  readyMessages?: ReadyMessage[];
   isLoading?: boolean;
   isSending?: boolean;
   canManageMessages?: boolean;
@@ -190,6 +191,7 @@ export function MessageThread({
   messages,
   onSendMessage,
   templates,
+  readyMessages,
   isLoading,
   isSending,
   canManageMessages,
@@ -810,6 +812,7 @@ export function MessageThread({
             onSend={handleComposerSend}
             onSendTemplate={handleTemplateSend}
             templates={templates}
+            readyMessages={readyMessages}
             disabled={isSending || !conversation}
             replyTo={replyContext}
             onClearReply={handleClearReply}

@@ -90,6 +90,18 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+export const readyMessages = pgTable("ready_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  body: text("body").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdByUserId: varchar("created_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
 export const conversationsRelations = relations(conversations, ({ many, one }) => ({
   messages: many(messages),
   creator: one(users, {
@@ -160,6 +172,8 @@ export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export type Conversation = typeof conversations.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type Message = typeof messages.$inferSelect;
+export type InsertReadyMessage = typeof readyMessages.$inferInsert;
+export type ReadyMessage = typeof readyMessages.$inferSelect;
 
 export const webhooks = pgTable("webhooks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

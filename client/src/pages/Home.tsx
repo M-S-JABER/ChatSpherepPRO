@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { type Conversation } from "@shared/schema";
+import { type Conversation, type ReadyMessage } from "@shared/schema";
 import { ConversationList } from "@/components/ConversationList";
 import { MessageThread } from "@/components/MessageThread";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -149,6 +149,17 @@ export default function Home() {
   });
 
   const templates = templatesData?.items ?? [];
+
+  const { data: readyMessagesData } = useQuery<{ items: ReadyMessage[] }>({
+    queryKey: ["/api/ready-messages"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/ready-messages");
+      return await res.json();
+    },
+    retry: false,
+  });
+
+  const readyMessages = readyMessagesData?.items ?? [];
 
   const {
     data: messagesData,
@@ -509,13 +520,14 @@ export default function Home() {
             />
 
             <div className="flex min-h-0 flex-col border-r border-border/60">
-              <MessageThread
-                conversation={selectedConversation}
-                messages={messages}
-                onSendMessage={handleSendMessage}
-                templates={templates}
-                isLoading={messagesLoading}
-                isSending={sendMessageMutation.isPending}
+      <MessageThread
+        conversation={selectedConversation}
+        messages={messages}
+        onSendMessage={handleSendMessage}
+        templates={templates}
+        readyMessages={readyMessages}
+        isLoading={messagesLoading}
+        isSending={sendMessageMutation.isPending}
                 canManageMessages={canDeleteMessages}
                 onDeleteMessage={
                   canDeleteMessages
@@ -582,6 +594,7 @@ export default function Home() {
                 messages={messages}
                 onSendMessage={handleSendMessage}
                 templates={templates}
+                readyMessages={readyMessages}
                 isLoading={messagesLoading}
                 isSending={sendMessageMutation.isPending}
                 canManageMessages={canDeleteMessages}

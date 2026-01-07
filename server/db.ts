@@ -96,6 +96,23 @@ export async function ensureSchema(): Promise<void> {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS ready_messages (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        name text NOT NULL,
+        body text NOT NULL,
+        is_active boolean NOT NULL DEFAULT true,
+        created_by_user_id varchar REFERENCES users(id) ON DELETE SET NULL,
+        created_at timestamptz DEFAULT now(),
+        updated_at timestamptz DEFAULT now()
+      );
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_ready_messages_active_updated_at
+      ON ready_messages (is_active, updated_at DESC);
+    `);
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS user_activity (
         user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         day date NOT NULL,

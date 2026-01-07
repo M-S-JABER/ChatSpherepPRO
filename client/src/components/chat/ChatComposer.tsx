@@ -29,6 +29,7 @@ import EmojiPicker, { EmojiClickData } from "emoji-picker-react";
 import { FileText, Paperclip, Send, Smile, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type TemplateCatalogItem } from "@/types/templates";
+import { type ReadyMessage } from "@shared/schema";
 
 type ComposerAttachment = Attachment;
 type UpdateAttachmentUploadState = (id: string, state: Partial<AttachmentUploadState>) => void;
@@ -56,6 +57,7 @@ export type ChatComposerProps = {
   onSend: (payload: ChatComposerSendPayload) => Promise<void> | void;
   onSendTemplate?: (payload: ChatComposerTemplateSendPayload) => Promise<void> | void;
   templates?: TemplateCatalogItem[];
+  readyMessages?: ReadyMessage[];
   maxFiles?: number;
   maxFileSizeMB?: number;
   acceptedTypes?: ReadonlyArray<string>;
@@ -108,6 +110,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       onSend,
       onSendTemplate,
       templates = [],
+      readyMessages = [],
       maxFiles = DEFAULT_MAX_FILES,
       maxFileSizeMB = DEFAULT_MAX_FILE_SIZE_MB,
       acceptedTypes = DEFAULT_ACCEPTED_TYPES,
@@ -126,6 +129,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const [templatePanelOpen, setTemplatePanelOpen] = useState(false);
     const [selectedTemplateName, setSelectedTemplateName] = useState<string | null>(null);
     const [templateParamsInput, setTemplateParamsInput] = useState("");
+    const [selectedReadyMessageId, setSelectedReadyMessageId] = useState<string | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const selectionRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
@@ -279,6 +283,18 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       [templates],
     );
 
+    const availableReadyMessages = useMemo(
+      () =>
+        readyMessages
+          .map((message) => ({
+            ...message,
+            name: typeof message.name === "string" ? message.name.trim() : "",
+            body: typeof message.body === "string" ? message.body : "",
+          }))
+          .filter((message) => message.name.length > 0 && message.body.trim().length > 0),
+      [readyMessages],
+    );
+
     useEffect(() => {
       if (availableTemplates.length === 0) {
         if (selectedTemplateName !== null) {
@@ -294,12 +310,28 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     }, [availableTemplates, selectedTemplateName]);
 
     useEffect(() => {
-      if (!onSendTemplate || templateAutoOpenRef.current) return;
-      if (availableTemplates.length > 0) {
+      if (availableReadyMessages.length === 0) {
+        if (selectedReadyMessageId !== null) {
+          setSelectedReadyMessageId(null);
+        }
+        return;
+      }
+
+      const exists = availableReadyMessages.some(
+        (message) => message.id === selectedReadyMessageId,
+      );
+      if (!exists) {
+        setSelectedReadyMessageId(availableReadyMessages[0].id);
+      }
+    }, [availableReadyMessages, selectedReadyMessageId]);
+
+    useEffect(() => {
+      if (templateAutoOpenRef.current) return;
+      if (availableTemplates.length > 0 || availableReadyMessages.length > 0) {
         setTemplatePanelOpen(true);
         templateAutoOpenRef.current = true;
       }
-    }, [availableTemplates.length, onSendTemplate]);
+    }, [availableTemplates.length, availableReadyMessages.length]);
 
     useEffect(() => {
       return () => {
@@ -340,6 +372,11 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       availableTemplates[0] ??
       null;
 
+    const selectedReadyMessage =
+      availableReadyMessages.find((message) => message.id === selectedReadyMessageId) ??
+      availableReadyMessages[0] ??
+      null;
+
     const templateParams = parseTemplateParamsInput(templateParamsInput);
     const expectedParamCount = selectedTemplate?.bodyParams ?? 0;
     const hasRequiredParams =
@@ -350,6 +387,11 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       !isSending &&
       attachments.length === 0 &&
       hasRequiredParams;
+    const canSendReadyMessage =
+      Boolean(selectedReadyMessage) &&
+      !disabled &&
+      !isSending &&
+      attachments.length === 0;
 
     const handleEmojiClick = (emojiData: EmojiClickData) => {
       insertTextAtCursor(emojiData.emoji);
@@ -435,6 +477,33 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       }
     };
 
+    const handleReadyMessageSend = async () => {
+      if (!selectedReadyMessage || disabled || isSending) {
+        return;
+      }
+
+      if (attachments.length > 0) {
+        setErrors((prev) =>
+          Array.from(new Set([...prev, "Remove attachments before sending a ready message."])),
+        );
+        return;
+      }
+
+      setErrors([]);
+      setIsSending(true);
+      try {
+        await onSend({
+          text: selectedReadyMessage.body,
+          attachments: [],
+          replyToMessageId: replyTo?.id,
+          setAttachmentUploadState,
+        });
+        onClearReply?.();
+      } finally {
+        setIsSending(false);
+      }
+    };
+
     const handleSend = async () => {
       const trimmed = message.trim();
       if ((trimmed.length === 0 && attachments.length === 0) || disabled || isSending) {
@@ -477,6 +546,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       disabled ||
       isSending ||
       (message.trim().length === 0 && attachments.length === 0);
+    const canToggleTemplatePanel =
+      Boolean(onSendTemplate) || availableReadyMessages.length > 0;
 
     return (
       <div
@@ -534,80 +605,133 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 
         {templatePanelOpen && (
           <div className="mt-2 rounded-2xl border border-border/60 bg-card/95 px-3 py-3 shadow-sm">
-            {availableTemplates.length === 0 ? (
+            {availableTemplates.length === 0 && availableReadyMessages.length === 0 ? (
               <p className="text-xs text-muted-foreground">
-                No templates configured. Set META_TEMPLATE_CATALOG or META_TEMPLATE_NAME in the server environment.
+                No templates or ready messages configured. Set META_TEMPLATE_CATALOG or add ready messages in Settings.
               </p>
             ) : (
-              <div className="flex flex-col gap-3">
-                <div className="grid gap-3 md:grid-cols-[1.2fr_1.6fr_auto] md:items-end">
-                  <div className="space-y-1">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Template
-                    </p>
-                    <Select
-                      value={selectedTemplate?.name ?? ""}
-                      onValueChange={(value) => setSelectedTemplateName(value)}
-                    >
-                      <SelectTrigger className="h-9">
-                        <SelectValue placeholder="Choose template" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableTemplates.map((template) => (
-                          <SelectItem key={template.name} value={template.name}>
-                            {template.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {selectedTemplate?.language && (
+              <div className="flex flex-col gap-4">
+                {availableTemplates.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <div className="grid gap-3 md:grid-cols-[1.2fr_1.6fr_auto] md:items-end">
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Template
+                        </p>
+                        <Select
+                          value={selectedTemplate?.name ?? ""}
+                          onValueChange={(value) => setSelectedTemplateName(value)}
+                        >
+                          <SelectTrigger className="h-9">
+                            <SelectValue placeholder="Choose template" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableTemplates.map((template) => (
+                              <SelectItem key={template.name} value={template.name}>
+                                {template.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {selectedTemplate?.language && (
+                          <p className="text-[11px] text-muted-foreground">
+                            Language: {selectedTemplate.language}
+                          </p>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Parameters
+                        </p>
+                        <Input
+                          value={templateParamsInput}
+                          onChange={(event) => setTemplateParamsInput(event.target.value)}
+                          placeholder='["name","order"] or single value'
+                          className="h-9"
+                          disabled={!selectedTemplate || disabled}
+                        />
+                        <p className="text-[11px] text-muted-foreground">
+                          {selectedTemplate?.bodyParams
+                            ? `Expected ${selectedTemplate.bodyParams} parameter${
+                                selectedTemplate.bodyParams === 1 ? "" : "s"
+                              }. Use JSON array for multiple values.`
+                            : "Use JSON array for multiple values."}
+                        </p>
+                        {expectedParamCount > 0 && templateParams.length < expectedParamCount && (
+                          <p className="text-[11px] text-destructive">
+                            Missing {expectedParamCount - templateParams.length} parameter
+                            {expectedParamCount - templateParams.length === 1 ? "" : "s"}.
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-9 w-full md:w-auto"
+                        onClick={handleTemplateSend}
+                        disabled={!canSendTemplate}
+                      >
+                        Send template
+                      </Button>
+                    </div>
+                    {attachments.length > 0 && (
                       <p className="text-[11px] text-muted-foreground">
-                        Language: {selectedTemplate.language}
+                        Remove attachments before sending a template.
                       </p>
                     )}
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      Parameters
-                    </p>
-                    <Input
-                      value={templateParamsInput}
-                      onChange={(event) => setTemplateParamsInput(event.target.value)}
-                      placeholder='["name","order"] or single value'
-                      className="h-9"
-                      disabled={!selectedTemplate || disabled}
-                    />
-                    <p className="text-[11px] text-muted-foreground">
-                      {selectedTemplate?.bodyParams
-                        ? `Expected ${selectedTemplate.bodyParams} parameter${
-                            selectedTemplate.bodyParams === 1 ? "" : "s"
-                          }. Use JSON array for multiple values.`
-                        : "Use JSON array for multiple values."}
-                    </p>
-                    {expectedParamCount > 0 && templateParams.length < expectedParamCount && (
-                      <p className="text-[11px] text-destructive">
-                        Missing {expectedParamCount - templateParams.length} parameter
-                        {expectedParamCount - templateParams.length === 1 ? "" : "s"}.
-                      </p>
+                    {selectedTemplate?.description && (
+                      <p className="text-xs text-muted-foreground">{selectedTemplate.description}</p>
                     )}
                   </div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-9 w-full md:w-auto"
-                    onClick={handleTemplateSend}
-                    disabled={!canSendTemplate}
-                  >
-                    Send template
-                  </Button>
-                </div>
-                {attachments.length > 0 && (
-                  <p className="text-[11px] text-muted-foreground">
-                    Remove attachments before sending a template.
-                  </p>
                 )}
-                {selectedTemplate?.description && (
-                  <p className="text-xs text-muted-foreground">{selectedTemplate.description}</p>
+
+                {availableReadyMessages.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <div className="grid gap-3 md:grid-cols-[1.2fr_1.6fr_auto] md:items-end">
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Ready message
+                        </p>
+                        <Select
+                          value={selectedReadyMessage?.id ?? ""}
+                          onValueChange={(value) => setSelectedReadyMessageId(value)}
+                        >
+                          <SelectTrigger className="h-9">
+                            <SelectValue placeholder="Choose message" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableReadyMessages.map((message) => (
+                              <SelectItem key={message.id} value={message.id}>
+                                {message.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Preview
+                        </p>
+                        <div className="rounded-md border border-border/60 bg-background/60 px-3 py-2 text-xs text-muted-foreground line-clamp-3">
+                          {selectedReadyMessage?.body ?? "No message selected."}
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-9 w-full md:w-auto"
+                        onClick={handleReadyMessageSend}
+                        disabled={!canSendReadyMessage}
+                      >
+                        Send ready message
+                      </Button>
+                    </div>
+                    {attachments.length > 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Remove attachments before sending a ready message.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -648,7 +772,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
             type="button"
             className="h-9 w-9 rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
             onClick={() => setTemplatePanelOpen((prev) => !prev)}
-            disabled={!onSendTemplate}
+            disabled={!canToggleTemplatePanel}
             aria-label="Toggle templates"
           >
             <FileText className="h-5 w-5" />

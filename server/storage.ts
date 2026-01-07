@@ -2,6 +2,7 @@ import {
   conversations,
   messages,
   users,
+  readyMessages,
   webhooks,
   webhookEvents,
   appSettings,
@@ -15,6 +16,7 @@ import {
   type InsertConversation,
   type InsertMessage,
   type InsertUser,
+  type ReadyMessage,
   type MessageMedia,
 } from "@shared/schema";
 import { db } from "./db";
@@ -66,7 +68,20 @@ export interface IStorage {
   getAllUsers(): Promise<User[]>;
   updateUser(id: string, updates: Partial<Pick<User, "username" | "role" | "password">>): Promise<User>;
   deleteUser(id: string): Promise<void>;
-  
+
+  getReadyMessages(activeOnly?: boolean): Promise<ReadyMessage[]>;
+  createReadyMessage(data: {
+    name: string;
+    body: string;
+    createdByUserId?: string | null;
+    isActive?: boolean;
+  }): Promise<ReadyMessage>;
+  updateReadyMessage(
+    id: string,
+    updates: { name?: string; body?: string; isActive?: boolean },
+  ): Promise<ReadyMessage>;
+  deleteReadyMessage(id: string): Promise<void>;
+
   getStatistics(): Promise<any>;
   
   // Webhooks
@@ -454,6 +469,52 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(users)
       .where(eq(users.id, id));
+  }
+
+  async getReadyMessages(activeOnly: boolean = true): Promise<ReadyMessage[]> {
+    let query = db.select().from(readyMessages) as any;
+    if (activeOnly) {
+      query = query.where(eq(readyMessages.isActive, true));
+    }
+    return await query.orderBy(desc(readyMessages.updatedAt), desc(readyMessages.createdAt));
+  }
+
+  async createReadyMessage(data: {
+    name: string;
+    body: string;
+    createdByUserId?: string | null;
+    isActive?: boolean;
+  }): Promise<ReadyMessage> {
+    const [message] = await db
+      .insert(readyMessages)
+      .values({
+        name: data.name,
+        body: data.body,
+        createdByUserId: data.createdByUserId ?? null,
+        isActive: data.isActive ?? true,
+        updatedAt: new Date(),
+      })
+      .returning();
+    return message;
+  }
+
+  async updateReadyMessage(
+    id: string,
+    updates: { name?: string; body?: string; isActive?: boolean },
+  ): Promise<ReadyMessage> {
+    const [message] = await db
+      .update(readyMessages)
+      .set({
+        ...updates,
+        updatedAt: new Date(),
+      })
+      .where(eq(readyMessages.id, id))
+      .returning();
+    return message;
+  }
+
+  async deleteReadyMessage(id: string): Promise<void> {
+    await db.delete(readyMessages).where(eq(readyMessages.id, id));
   }
 
   async recordUserActivity(userId: string, now: Date = new Date()): Promise<void> {

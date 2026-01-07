@@ -5,15 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { ArrowLeft, ShieldAlert, Copy, Zap, Save, RotateCcw, Globe, Link2 } from "lucide-react";
+import { ArrowLeft, ShieldAlert, Copy, Zap, Save, RotateCcw, Globe, Link2, MessageSquare } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserMenu } from "@/components/UserMenu";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { apiRequest } from "@/lib/queryClient";
+import { type ReadyMessage } from "@shared/schema";
 
 interface DefaultInstance {
   id: string;
@@ -50,6 +52,12 @@ export default function Settings() {
   const [formError, setFormError] = useState<string | null>(null);
   const [webhookPath, setWebhookPath] = useState<string>(DEFAULT_WEBHOOK_PATH);
   const [webhookUpdatedAt, setWebhookUpdatedAt] = useState<string | null>(null);
+  const [readyMessageName, setReadyMessageName] = useState("");
+  const [readyMessageBody, setReadyMessageBody] = useState("");
+  const [readyMessageError, setReadyMessageError] = useState<string | null>(null);
+  const [editingReadyMessageId, setEditingReadyMessageId] = useState<string | null>(null);
+  const [editingReadyMessageName, setEditingReadyMessageName] = useState("");
+  const [editingReadyMessageBody, setEditingReadyMessageBody] = useState("");
   const webhookBaseUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
     try {
@@ -110,6 +118,17 @@ export default function Settings() {
     retry: false,
   });
 
+  const { data: readyMessagesData, isLoading: readyMessagesLoading } = useQuery<{ items: ReadyMessage[] }>({
+    queryKey: ["/api/admin/ready-messages"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/admin/ready-messages");
+      return await res.json();
+    },
+    retry: false,
+  });
+
+  const readyMessages = readyMessagesData?.items ?? [];
+
   const instance = defaultInstanceData?.instance ?? null;
 
   useEffect(() => {
@@ -167,6 +186,80 @@ export default function Settings() {
       toast({
         variant: "destructive",
         title: "Failed to update webhook configuration",
+        description: error.message,
+      });
+    },
+  });
+
+  const createReadyMessageMutation = useMutation({
+    mutationFn: async (payload: { name: string; body: string }) => {
+      const res = await apiRequest("POST", "/api/admin/ready-messages", payload);
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/ready-messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ready-messages"] });
+      setReadyMessageName("");
+      setReadyMessageBody("");
+      setReadyMessageError(null);
+      toast({
+        title: "Ready message added",
+        description: "The quick message is now available in the template panel.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to add ready message",
+        description: error.message,
+      });
+    },
+  });
+
+  const updateReadyMessageMutation = useMutation({
+    mutationFn: async (payload: { id: string; name: string; body: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/ready-messages/${payload.id}`, {
+        name: payload.name,
+        body: payload.body,
+      });
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/ready-messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ready-messages"] });
+      setEditingReadyMessageId(null);
+      setEditingReadyMessageName("");
+      setEditingReadyMessageBody("");
+      toast({
+        title: "Ready message updated",
+        description: "Changes saved successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to update ready message",
+        description: error.message,
+      });
+    },
+  });
+
+  const deleteReadyMessageMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/admin/ready-messages/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/ready-messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/ready-messages"] });
+      toast({
+        title: "Ready message deleted",
+        description: "The message has been removed.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        variant: "destructive",
+        title: "Failed to delete ready message",
         description: error.message,
       });
     },
@@ -237,6 +330,64 @@ export default function Settings() {
   const handleWebhookReset = () => {
     setWebhookPath(DEFAULT_WEBHOOK_PATH);
     setWebhookUpdatedAt(null);
+  };
+
+  const handleReadyMessageSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmedName = readyMessageName.trim();
+    const trimmedBody = readyMessageBody.trim();
+
+    if (!trimmedName) {
+      setReadyMessageError("Message name is required.");
+      return;
+    }
+
+    if (!trimmedBody) {
+      setReadyMessageError("Message body is required.");
+      return;
+    }
+
+    setReadyMessageError(null);
+    createReadyMessageMutation.mutate({ name: trimmedName, body: trimmedBody });
+  };
+
+  const handleStartEditReadyMessage = (message: ReadyMessage) => {
+    setEditingReadyMessageId(message.id);
+    setEditingReadyMessageName(message.name ?? "");
+    setEditingReadyMessageBody(message.body ?? "");
+  };
+
+  const handleCancelEditReadyMessage = () => {
+    setEditingReadyMessageId(null);
+    setEditingReadyMessageName("");
+    setEditingReadyMessageBody("");
+  };
+
+  const handleSaveReadyMessage = () => {
+    if (!editingReadyMessageId) return;
+    const trimmedName = editingReadyMessageName.trim();
+    const trimmedBody = editingReadyMessageBody.trim();
+
+    if (!trimmedName || !trimmedBody) {
+      toast({
+        variant: "destructive",
+        title: "Missing fields",
+        description: "Ready message name and body are required.",
+      });
+      return;
+    }
+
+    updateReadyMessageMutation.mutate({
+      id: editingReadyMessageId,
+      name: trimmedName,
+      body: trimmedBody,
+    });
+  };
+
+  const handleDeleteReadyMessage = (message: ReadyMessage) => {
+    const confirmed = window.confirm(`Delete "${message.name}"? This cannot be undone.`);
+    if (!confirmed) return;
+    deleteReadyMessageMutation.mutate(message.id);
   };
 
   // Redirect non-admin users to home page
@@ -547,6 +698,145 @@ export default function Settings() {
               <p className="text-xs text-muted-foreground">
                 WhatsApp will perform a GET request for verification and POST messages to the same URL.
               </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5" />
+                Ready messages
+              </CardTitle>
+              <CardDescription>
+                Create reusable replies that appear in the template panel for all agents.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <form onSubmit={handleReadyMessageSubmit} className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="ready-message-name">Message name</Label>
+                    <Input
+                      id="ready-message-name"
+                      value={readyMessageName}
+                      onChange={(event) => setReadyMessageName(event.target.value)}
+                      placeholder="e.g. Welcome note"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="ready-message-body">Message body</Label>
+                    <Textarea
+                      id="ready-message-body"
+                      value={readyMessageBody}
+                      onChange={(event) => setReadyMessageBody(event.target.value)}
+                      placeholder="Type the response text..."
+                      rows={3}
+                    />
+                  </div>
+                </div>
+                {readyMessageError && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{readyMessageError}</AlertDescription>
+                  </Alert>
+                )}
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={createReadyMessageMutation.isPending}>
+                    {createReadyMessageMutation.isPending ? "Adding..." : "Add ready message"}
+                  </Button>
+                </div>
+              </form>
+
+              <div className="space-y-4">
+                {readyMessagesLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading ready messages...</p>
+                ) : readyMessages.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No ready messages created yet.</p>
+                ) : (
+                  readyMessages.map((message) => {
+                    const isEditing = editingReadyMessageId === message.id;
+                    return (
+                      <div
+                        key={message.id}
+                        className="rounded-lg border border-border/60 bg-background/60 p-4"
+                      >
+                        {isEditing ? (
+                          <div className="space-y-3">
+                            <div className="space-y-1">
+                              <Label htmlFor={`ready-message-edit-name-${message.id}`}>
+                                Message name
+                              </Label>
+                              <Input
+                                id={`ready-message-edit-name-${message.id}`}
+                                value={editingReadyMessageName}
+                                onChange={(event) => setEditingReadyMessageName(event.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor={`ready-message-edit-body-${message.id}`}>
+                                Message body
+                              </Label>
+                              <Textarea
+                                id={`ready-message-edit-body-${message.id}`}
+                                value={editingReadyMessageBody}
+                                onChange={(event) => setEditingReadyMessageBody(event.target.value)}
+                                rows={3}
+                              />
+                            </div>
+                            <div className="flex flex-wrap items-center justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={handleCancelEditReadyMessage}
+                                disabled={updateReadyMessageMutation.isPending}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={handleSaveReadyMessage}
+                                disabled={updateReadyMessageMutation.isPending}
+                              >
+                                {updateReadyMessageMutation.isPending ? "Saving..." : "Save"}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-foreground">{message.name}</p>
+                                <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+                                  {message.body}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleStartEditReadyMessage(message)}
+                                  disabled={deleteReadyMessageMutation.isPending}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => handleDeleteReadyMessage(message)}
+                                  disabled={deleteReadyMessageMutation.isPending}
+                                >
+                                  Delete
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </CardContent>
           </Card>
 
