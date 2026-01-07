@@ -296,7 +296,7 @@ export function MessageBubble({
         </div>
       </div>
 
-      {!isOutbound && onReply && (
+      {onReply && (
         <div className="-mb-1 flex items-center gap-2">
           <Button
             variant="ghost"

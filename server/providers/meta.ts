@@ -1,6 +1,7 @@
 import {
   IWhatsAppProvider,
   SendMessageResponse,
+  SendMessageOptions,
   IncomingMessageEvent,
   IncomingMediaDescriptor,
   IncomingMediaType,
@@ -88,7 +89,19 @@ export class MetaProvider implements IWhatsAppProvider {
     return { id: data.messages?.[0]?.id, status: "sent" };
   }
 
-  async send(to: string, body?: string, mediaUrl?: string): Promise<SendMessageResponse> {
+  private applyReplyContext(messagePayload: any, options?: SendMessageOptions) {
+    const replyTo = options?.replyToMessageId;
+    if (replyTo) {
+      messagePayload.context = { message_id: replyTo };
+    }
+  }
+
+  async send(
+    to: string,
+    body?: string,
+    mediaUrl?: string,
+    options?: SendMessageOptions,
+  ): Promise<SendMessageResponse> {
     if (!this.token || !this.phoneNumberId) {
       throw new Error("Meta credentials not configured. Please set META_TOKEN and META_PHONE_NUMBER_ID environment variables.");
     }
@@ -99,6 +112,8 @@ export class MetaProvider implements IWhatsAppProvider {
       messaging_product: "whatsapp",
       to: cleanPhone,
     };
+
+    this.applyReplyContext(messagePayload, options);
 
     if (mediaUrl) {
       const normalizedUrl = mediaUrl.split("?")[0].split("#")[0];
@@ -157,7 +172,11 @@ export class MetaProvider implements IWhatsAppProvider {
     return await this.postMessage(messagePayload);
   }
 
-  async sendTemplate(to: string, template: MetaTemplateMessage): Promise<SendMessageResponse> {
+  async sendTemplate(
+    to: string,
+    template: MetaTemplateMessage,
+    options?: SendMessageOptions,
+  ): Promise<SendMessageResponse> {
     if (!this.token || !this.phoneNumberId) {
       throw new Error("Meta credentials not configured. Please set META_TOKEN and META_PHONE_NUMBER_ID environment variables.");
     }
@@ -186,6 +205,8 @@ export class MetaProvider implements IWhatsAppProvider {
         language,
       },
     };
+
+    this.applyReplyContext(messagePayload, options);
 
     return await this.postMessage(messagePayload);
   }
@@ -263,6 +284,7 @@ export class MetaProvider implements IWhatsAppProvider {
               from: msg.from,
               raw: msg,
               providerMessageId: msg.id,
+              replyToProviderMessageId: msg.context?.id,
               timestamp: timestampIso,
             };
 

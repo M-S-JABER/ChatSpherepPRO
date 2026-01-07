@@ -1037,6 +1037,7 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
       }
 
       let replyTarget = null as Awaited<ReturnType<typeof storage.getMessageById>> | null;
+      let replyToProviderMessageId: string | null = null;
 
       if (replyToMessageId) {
         const messageTarget = await storage.getMessageById(replyToMessageId);
@@ -1049,11 +1050,8 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
           return res.status(400).json({ error: "Reply target belongs to a different conversation." });
         }
 
-        if (messageTarget.direction !== "inbound") {
-          return res.status(400).json({ error: "You can only reply to incoming messages." });
-        }
-
         replyTarget = messageTarget;
+        replyToProviderMessageId = messageTarget.providerMessageId ?? null;
       }
 
       console.info(
@@ -1127,16 +1125,25 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
           : `Template: ${templateMessage?.name ?? "unknown"}`
         : body || null;
 
+      const providerOptions = replyToProviderMessageId
+        ? { replyToMessageId: replyToProviderMessageId }
+        : undefined;
+
       try {
         if (wantsTemplate && templateMessage) {
-          const providerResp = await provider.sendTemplate(recipientPhone, templateMessage);
+          const providerResp = await provider.sendTemplate(recipientPhone, templateMessage, providerOptions);
           providerMessageId = providerResp.id || null;
         } else {
           const providerMediaUrl = providerMediaPath
             ? resolvePublicMediaUrl(req, providerMediaPath)
             : undefined;
 
-          const providerResp = await provider.send(recipientPhone, body ?? undefined, providerMediaUrl);
+          const providerResp = await provider.send(
+            recipientPhone,
+            body ?? undefined,
+            providerMediaUrl,
+            providerOptions,
+          );
           providerMessageId = providerResp.id || null;
         }
       } catch (providerError: any) {
@@ -1358,6 +1365,14 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
         }
 
         const pendingMedia = createPendingMediaDescriptor(event.media);
+        let replyToId: string | null = null;
+
+        if (event.replyToProviderMessageId) {
+          const replyTarget = await storage.getMessageByProviderMessageId(event.replyToProviderMessageId);
+          if (replyTarget && replyTarget.conversationId === conversation.id) {
+            replyToId = replyTarget.id;
+          }
+        }
 
         console.log(`💾 Saving message to database...`);
         const message = await storage.createMessage({
@@ -1368,7 +1383,7 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
           providerMessageId: event.providerMessageId ?? null,
           status: "received",
           raw: event.raw,
-          replyToMessageId: null,
+          replyToMessageId: replyToId,
         } as any);
 
         console.log(`✅ Message saved with ID: ${message.id}`);

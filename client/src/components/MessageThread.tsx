@@ -241,7 +241,6 @@ export function MessageThread({
     direction === "inbound" ? "Customer" : "Agent";
 
   const handleReplySelect = (message: ChatMessage) => {
-    if (message.direction !== "inbound") return;
     setReplyContext({
       id: message.id,
       senderLabel: getSenderLabel(message.direction),

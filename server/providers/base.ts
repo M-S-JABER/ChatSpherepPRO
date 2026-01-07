@@ -3,6 +3,10 @@ export interface SendMessageResponse {
   status: string;
 }
 
+export type SendMessageOptions = {
+  replyToMessageId?: string | null;
+};
+
 export type IncomingMediaType = "image" | "video" | "audio" | "document" | "unknown";
 
 export interface IncomingMediaDescriptor {
@@ -28,12 +32,18 @@ export interface IncomingMessageEvent {
   body?: string;
   media?: IncomingMediaDescriptor;
   providerMessageId?: string;
+  replyToProviderMessageId?: string;
   timestamp?: string;
   raw?: any;
 }
 
 export interface IWhatsAppProvider {
-  send(to: string, body?: string, mediaUrl?: string): Promise<SendMessageResponse>;
+  send(
+    to: string,
+    body?: string,
+    mediaUrl?: string,
+    options?: SendMessageOptions,
+  ): Promise<SendMessageResponse>;
   verifyWebhook(request: any): boolean;
   parseIncoming(payload: any): IncomingMessageEvent[];
 }
