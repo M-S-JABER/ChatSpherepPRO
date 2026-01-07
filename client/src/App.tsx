@@ -5,6 +5,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/use-auth";
+import { useActivityPing } from "@/hooks/use-activity-ping";
 import { ProtectedRoute } from "@/lib/protected-route";
 import Home from "@/pages/Home";
 import Settings from "@/pages/Settings";
@@ -54,12 +55,18 @@ function Router() {
   );
 }
 
+function ActivityPing() {
+  useActivityPing();
+  return null;
+}
+
 function App() {
   useViewportHeight();
 
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <ActivityPing />
         <TooltipProvider>
           <div className="app-shell">
             <Toaster />

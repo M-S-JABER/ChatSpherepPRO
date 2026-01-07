@@ -6,6 +6,7 @@ import {
   webhookEvents,
   appSettings,
   conversationPins,
+  userActivity,
   type Conversation,
   type Message,
   type User,
@@ -17,7 +18,7 @@ import {
   type MessageMedia,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, sql, and, inArray } from "drizzle-orm";
+import { eq, desc, sql, and, inArray, aliasedTable } from "drizzle-orm";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
@@ -89,6 +90,7 @@ export interface IStorage {
   unpinConversation(userId: string, conversationId: string): Promise<void>;
   isConversationPinned(userId: string, conversationId: string): Promise<boolean>;
   countPinnedConversations(userId: string): Promise<number>;
+  recordUserActivity(userId: string, now?: Date): Promise<void>;
   
   sessionStore: session.Store;
 }
@@ -104,6 +106,8 @@ export type ReplySummary = {
 const toSenderLabel = (direction: string): "Customer" | "Agent" => {
   return direction === "inbound" ? "Customer" : "Agent";
 };
+
+const ACTIVITY_MAX_IDLE_MS = Number(process.env.ACTIVITY_MAX_IDLE_MS ?? 5 * 60 * 1000);
 
 export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
@@ -452,6 +456,48 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, id));
   }
 
+  async recordUserActivity(userId: string, now: Date = new Date()): Promise<void> {
+    const dayKey = now.toISOString().slice(0, 10);
+    const [existing] = await db
+      .select({
+        activeSeconds: userActivity.activeSeconds,
+        lastSeenAt: userActivity.lastSeenAt,
+      })
+      .from(userActivity)
+      .where(and(eq(userActivity.userId, userId), eq(userActivity.day, dayKey)))
+      .limit(1);
+
+    if (!existing) {
+      await db.insert(userActivity).values({
+        userId,
+        day: dayKey,
+        activeSeconds: 0,
+        lastSeenAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      return;
+    }
+
+    let incrementSeconds = 0;
+    if (existing.lastSeenAt) {
+      const lastSeenAt = new Date(existing.lastSeenAt);
+      const deltaMs = now.getTime() - lastSeenAt.getTime();
+      if (deltaMs > 0 && deltaMs <= ACTIVITY_MAX_IDLE_MS) {
+        incrementSeconds = Math.floor(deltaMs / 1000);
+      }
+    }
+
+    await db
+      .update(userActivity)
+      .set({
+        activeSeconds: existing.activeSeconds + incrementSeconds,
+        lastSeenAt: now,
+        updatedAt: now,
+      })
+      .where(and(eq(userActivity.userId, userId), eq(userActivity.day, dayKey)));
+  }
+
   async getStatistics(): Promise<any> {
     // Get total counts
     const [totalConversations] = await db
@@ -527,6 +573,8 @@ export class DatabaseStorage implements IStorage {
         userId: messages.sentByUserId,
         totalMessages: sql<number>`count(${messages.id})::int`,
         mediaMessages: sql<number>`count(CASE WHEN ${messages.media} IS NOT NULL THEN 1 END)::int`,
+        repliesSent: sql<number>`count(CASE WHEN ${messages.replyToMessageId} IS NOT NULL THEN 1 END)::int`,
+        templatesSent: sql<number>`count(CASE WHEN (${messages.raw} -> 'template') IS NOT NULL OR ${messages.body} ILIKE 'Template:%' THEN 1 END)::int`,
         conversationsTouched: sql<number>`count(DISTINCT ${messages.conversationId})::int`,
         lastSentAt: sql<string | null>`max(${messages.createdAt})`,
       })
@@ -544,6 +592,33 @@ export class DatabaseStorage implements IStorage {
       .where(sql`${conversations.createdByUserId} IS NOT NULL`)
       .groupBy(conversations.createdByUserId);
 
+    const replyTarget = aliasedTable(messages, "reply_target");
+    const responseTimesByUser = await db
+      .select({
+        userId: messages.sentByUserId,
+        avgResponseSeconds: sql<number | null>`avg(extract(epoch from (${messages.createdAt} - ${replyTarget.createdAt})))`,
+        responseCount: sql<number>`count(${messages.id})::int`,
+      })
+      .from(messages)
+      .innerJoin(replyTarget, eq(messages.replyToMessageId, replyTarget.id))
+      .where(
+        and(
+          sql`${messages.sentByUserId} IS NOT NULL`,
+          eq(messages.direction, "outbound"),
+          eq(replyTarget.direction, "inbound"),
+        ),
+      )
+      .groupBy(messages.sentByUserId);
+
+    const activityByUser = await db
+      .select({
+        userId: userActivity.userId,
+        activeSeconds: sql<number>`sum(${userActivity.activeSeconds})::int`,
+      })
+      .from(userActivity)
+      .where(sql`${userActivity.day} >= CURRENT_DATE - 6`)
+      .groupBy(userActivity.userId);
+
     const toDate = (value: unknown): Date | null => {
       if (!value) return null;
       if (value instanceof Date) {
@@ -558,6 +633,8 @@ export class DatabaseStorage implements IStorage {
       {
         totalMessages: number;
         mediaMessages: number;
+        repliesSent: number;
+        templatesSent: number;
         conversationsTouched: number;
         lastSentAt: Date | null;
       }
@@ -567,9 +644,32 @@ export class DatabaseStorage implements IStorage {
       messageStatsMap.set(stat.userId, {
         totalMessages: stat.totalMessages,
         mediaMessages: stat.mediaMessages,
+        repliesSent: stat.repliesSent,
+        templatesSent: stat.templatesSent,
         conversationsTouched: stat.conversationsTouched,
         lastSentAt: toDate(stat.lastSentAt),
       });
+    }
+
+    const responseTimeMap = new Map<
+      string,
+      {
+        avgResponseSeconds: number | null;
+        responseCount: number;
+      }
+    >();
+    for (const stat of responseTimesByUser) {
+      if (!stat.userId) continue;
+      responseTimeMap.set(stat.userId, {
+        avgResponseSeconds: stat.avgResponseSeconds ? Number(stat.avgResponseSeconds) : null,
+        responseCount: stat.responseCount,
+      });
+    }
+
+    const activityTimeMap = new Map<string, number>();
+    for (const stat of activityByUser) {
+      if (!stat.userId) continue;
+      activityTimeMap.set(stat.userId, stat.activeSeconds ?? 0);
     }
 
     const conversationStatsMap = new Map<
@@ -592,11 +692,18 @@ export class DatabaseStorage implements IStorage {
     const userStats = usersList.map((user) => {
       const messageInfo = messageStatsMap.get(user.id);
       const conversationInfo = conversationStatsMap.get(user.id);
+      const responseInfo = responseTimeMap.get(user.id);
+      const activeSeconds = activityTimeMap.get(user.id) ?? 0;
 
       const messagesSent = messageInfo?.totalMessages ?? 0;
       const mediaSent = messageInfo?.mediaMessages ?? 0;
+      const repliesSent = messageInfo?.repliesSent ?? 0;
+      const templatesSent = messageInfo?.templatesSent ?? 0;
+      const newMessagesSent = Math.max(messagesSent - repliesSent, 0);
       const conversationsCreated = conversationInfo?.totalConversations ?? 0;
       const contactsEngaged = messageInfo?.conversationsTouched ?? 0;
+      const avgResponseSeconds = responseInfo?.avgResponseSeconds ?? null;
+      const responseCount = responseInfo?.responseCount ?? 0;
 
       const candidateDates = [
         messageInfo?.lastSentAt ?? null,
@@ -622,8 +729,14 @@ export class DatabaseStorage implements IStorage {
         createdAt: user.createdAt,
         messagesSent,
         mediaSent,
+        repliesSent,
+        newMessagesSent,
+        templatesSent,
         conversationsCreated,
         contactsEngaged,
+        avgResponseSeconds,
+        responseCount,
+        activeSeconds,
         lastActiveAt: lastActive ? lastActive.toISOString() : null,
         engagementRate,
         activityScore,

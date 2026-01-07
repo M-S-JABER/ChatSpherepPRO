@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, json, boolean, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, json, jsonb, boolean, primaryKey, integer, date } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -174,16 +174,16 @@ export const webhooks = pgTable("webhooks", {
 export const webhookEvents = pgTable("webhook_events", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   webhookId: varchar("webhook_id").references(() => webhooks.id, { onDelete: "set null" }),
-  headers: json("headers").$type<Record<string, any>>(),
-  query: json("query").$type<Record<string, any>>(),
-  body: json("body").$type<Record<string, any> | null>(),
-  response: json("response").$type<Record<string, any> | null>(),
+  headers: jsonb("headers").$type<Record<string, any>>(),
+  query: jsonb("query").$type<Record<string, any>>(),
+  body: jsonb("body").$type<Record<string, any> | null>(),
+  response: jsonb("response").$type<Record<string, any> | null>(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
 export const appSettings = pgTable("app_settings", {
   key: varchar("key").primaryKey(),
-  value: json("value").$type<Record<string, any>>(),
+  value: jsonb("value").$type<Record<string, any>>(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -226,6 +226,31 @@ export const conversationPinsRelations = relations(conversationPins, ({ one }) =
 }));
 
 export type ConversationPin = typeof conversationPins.$inferSelect;
+
+export const userActivity = pgTable(
+  "user_activity",
+  {
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+    activeSeconds: integer("active_seconds").notNull().default(0),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.day] }),
+  }),
+);
+
+export const session = pgTable("session", {
+  sid: varchar("sid").primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire").notNull(),
+});
+
+export type Session = typeof session.$inferSelect;
 
 export const insertWebhookSchema = createInsertSchema(webhooks).omit({
   id: true,

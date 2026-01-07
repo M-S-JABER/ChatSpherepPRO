@@ -945,6 +945,19 @@ export async function registerRoutes(app: Express, requireAdmin: any): Promise<S
     res.json({ ok: true });
   });
 
+  app.post("/api/activity/ping", async (req: Request, res: Response) => {
+    if (!req.isAuthenticated?.() || !req.user) {
+      return res.status(401).send("Not authenticated");
+    }
+
+    try {
+      await storage.recordUserActivity(req.user.id);
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
 
   app.get("/api/statistics", async (req: Request, res: Response) => {
     try {

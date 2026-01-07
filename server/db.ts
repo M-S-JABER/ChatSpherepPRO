@@ -96,6 +96,23 @@ export async function ensureSchema(): Promise<void> {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS user_activity (
+        user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        day date NOT NULL,
+        active_seconds integer NOT NULL DEFAULT 0,
+        last_seen_at timestamptz,
+        created_at timestamptz DEFAULT now(),
+        updated_at timestamptz DEFAULT now(),
+        PRIMARY KEY (user_id, day)
+      );
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_user_activity_day
+      ON user_activity (day);
+    `);
+
+    await client.query(`
       UPDATE messages
       SET direction = CASE 
         WHEN direction = 'in' THEN 'inbound'

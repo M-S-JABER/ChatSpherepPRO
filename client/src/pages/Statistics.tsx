@@ -62,8 +62,14 @@ interface UserStat {
   createdAt: string;
   messagesSent: number;
   mediaSent: number;
+  repliesSent: number;
+  newMessagesSent: number;
+  templatesSent: number;
   conversationsCreated: number;
   contactsEngaged: number;
+  avgResponseSeconds: number | null;
+  responseCount: number;
+  activeSeconds: number;
   lastActiveAt: string | null;
   engagementRate: number;
   activityScore: number;
@@ -111,6 +117,25 @@ export default function Statistics() {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "No activity";
     return format(date, "MMM dd, HH:mm");
+  };
+
+  const formatDuration = (value: number | null, emptyLabel: string = "—") => {
+    if (value === null || Number.isNaN(value)) {
+      return emptyLabel;
+    }
+    const totalSeconds = Math.max(0, Math.round(value));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+  };
+
+  const formatActiveTime = (value: number) => {
+    if (!value || value <= 0) return "0m";
+    return formatDuration(value, "0m");
   };
 
   return (
@@ -269,25 +294,28 @@ export default function Statistics() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
-              Team Engagement Overview
+              Team Performance Overview
             </CardTitle>
             <CardDescription>
-              {totalUsers} team member{totalUsers === 1 ? "" : "s"} with messaging activity insights
+              {totalUsers} team member{totalUsers === 1 ? "" : "s"} with response and usage insights
             </CardDescription>
           </CardHeader>
           <CardContent>
             {userStats.length > 0 ? (
               <div className="overflow-x-auto">
-                <Table>
+                <Table className="min-w-[1200px]">
                   <TableHeader>
                     <TableRow>
                       <TableHead>User</TableHead>
                       <TableHead>Role</TableHead>
                       <TableHead className="text-right">Messages Sent</TableHead>
-                      <TableHead className="text-right">Conversations Started</TableHead>
-                      <TableHead className="text-right">Contacts Engaged</TableHead>
-                      <TableHead className="text-right">Engagement</TableHead>
-                      <TableHead className="text-right">Activity Score</TableHead>
+                      <TableHead className="text-right">Replies Sent</TableHead>
+                      <TableHead className="text-right">New Messages</TableHead>
+                      <TableHead className="text-right">Templates Sent</TableHead>
+                      <TableHead className="text-right">Conversations Created</TableHead>
+                      <TableHead className="text-right">Conversations Touched</TableHead>
+                      <TableHead className="text-right">Avg Response</TableHead>
+                      <TableHead className="text-right">Active Time (7d)</TableHead>
                       <TableHead className="text-right">Last Active</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -301,12 +329,17 @@ export default function Statistics() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">{user.messagesSent}</TableCell>
+                        <TableCell className="text-right">{user.repliesSent}</TableCell>
+                        <TableCell className="text-right">{user.newMessagesSent}</TableCell>
+                        <TableCell className="text-right">{user.templatesSent}</TableCell>
                         <TableCell className="text-right">{user.conversationsCreated}</TableCell>
                         <TableCell className="text-right">{user.contactsEngaged}</TableCell>
                         <TableCell className="text-right">
-                          {user.engagementRate.toFixed(1)}%
+                          {user.responseCount > 0
+                            ? formatDuration(user.avgResponseSeconds)
+                            : "—"}
                         </TableCell>
-                        <TableCell className="text-right">{user.activityScore}</TableCell>
+                        <TableCell className="text-right">{formatActiveTime(user.activeSeconds)}</TableCell>
                         <TableCell className="text-right">
                           {formatLastActive(user.lastActiveAt)}
                         </TableCell>
